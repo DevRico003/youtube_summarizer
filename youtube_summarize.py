@@ -6,7 +6,7 @@ import openai
 
 from dotenv import load_dotenv, find_dotenv
 # Specify the path to your .env file
-env_path = '/home/username/.env/openai_api' # Change the path
+env_path = '/home/USER/.env/openai_api' # Change the Path
 # Load the OpenAI API key from the .env file
 load_dotenv(env_path)
 openai.api_key = os.getenv('OPENAI_API_KEY')
@@ -17,7 +17,7 @@ def youtube_audio_downloader(link):
 
     # Check for valid youtube link
     if 'youtube.com' not in link and 'youtu.be' not in link:
-        st.error('Ungültiger Youtube-Link!')
+        st.error('Invalid Youtube link!')
         return False
     
     # Downloading the Audio from the video
@@ -58,7 +58,7 @@ def transcribe(audio_file): # Add not_english=False to translate in english
 
     return transcript_filename
 
-def summarize(transcript_filename):
+def summarize(transcript_filename, language):
     if not os.path.exists(transcript_filename):
         print('Transcript file does not exist!')
         return False
@@ -66,18 +66,18 @@ def summarize(transcript_filename):
         transcript = f.read()
 
     system_prompt = 'I want you to act as a Life Coach that can create good summarize!'
-    prompt = f'''Create a summary of the following text in german.
+    prompt = f'''Create a summary of the following text in {language}.
     Text: {transcript}
 
-    Add a title to the summary in german. 
+    Add a title to the summary in {language}. 
     Your summary should be informative and factual, covering the most important aspects of the topic. 
     Start your summary with an INTRODUCTION PARAGRAPH that gives an overview of the topc FOLLOWED
-    by BULLET POINTS if possible AND end the summary with a CONCLUSION PHRASE. In german'''
+    by BULLET POINTS if possible AND end the summary with a CONCLUSION PHRASE. In {language}'''
 
 
     print('Starting summarizing ...', end='')
     response = openai.ChatCompletion.create(
-        model='gpt-3.5-turbo-16k',
+        model='gpt-3.5-turbo', # change the model to 'gpt-3.5-turbo-16k' for longer videos
         messages=[
             {'role': 'system', 'content': system_prompt},
             {'role': 'user', 'content': prompt}
@@ -100,29 +100,30 @@ def delete_files(*files):
 
 
 def main():
-    st.title('YouTube Video Zusammenfasser')
+    st.title('YouTube video summarizer')
     
-    link = st.text_input('Geben Sie den Link des YouTube-Videos ein, das Sie zusammenfassen möchten:')
-    
+    link = st.text_input('Enter the link of the YouTube video you want to summarize:')
+    language = st.selectbox('Select the language of the summary:', ['german', 'english', 'france', 'spanish', 'albanian', 'polisch', 'italian', 'russian'])
+
     if st.button('Start'):
         if link:
             try:
-                st.info('Die Bearbeitung kann je nach Länge des Videos zwischen 2 Minuten und 10 Minuten dauern.')
+                st.info('Editing can take from 1 minute to 10 minutes, depending on the length of the video.')
                 # Initialize progress bar and status text
                 progress = st.progress(0)
                 status_text = st.empty()
 
-                status_text.text('Herunterladen und Transkribieren des Videos...')
+                status_text.text('Download and transcribe the video...')
                 progress.progress(25)  # Progress after downloading and transcribing
                 mp3_file = youtube_audio_downloader(link)
                 transcript_filename = transcribe(mp3_file)
                 progress.progress(50)
 
-                status_text.text('Erstelle Zusammenfassung...')
+                status_text.text('Create summary...')
                 progress.progress(75)  # Progress after summarizing
-                summary = summarize(transcript_filename)
+                summary = summarize(transcript_filename, language)
                 
-                status_text.text('Zusammenfassung:')
+                status_text.text('Summary:')
                 st.markdown(summary)
                 progress.progress(100)  # Progress after summary
 
@@ -131,7 +132,7 @@ def main():
             except Exception as e:
                 st.write(str(e))
         else:
-            st.write('Bitte geben Sie einen gültigen YouTube-Link ein.')
+            st.write('Please enter a valid YouTube link.')
 
 
 if __name__ == "__main__":
