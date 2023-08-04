@@ -4,12 +4,9 @@ from pytube import YouTube
 import re
 import openai
 
-# Zugriff auf die OpenAI API key aus den Streamlit secrets
-#openai.api_key = st.secrets["OPENAI_API_KEY"]
-
 from dotenv import load_dotenv, find_dotenv
 # Specify the path to your .env file
-env_path = '/home/rico003/.env/openai_api'
+env_path = '/home/username/.env/openai_api' # Change the path
 # Load the OpenAI API key from the .env file
 load_dotenv(env_path)
 openai.api_key = os.getenv('OPENAI_API_KEY')
