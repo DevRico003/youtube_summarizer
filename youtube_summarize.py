@@ -1,11 +1,15 @@
+import os
 import streamlit as st
 from pytube import YouTube
 import re
 import openai
-from dotenv import load_dotenv, find_dotenv
 
+# Zugriff auf die OpenAI API key aus den Streamlit secrets
+#openai.api_key = st.secrets["OPENAI_API_KEY"]
+
+from dotenv import load_dotenv, find_dotenv
 # Specify the path to your .env file
-env_path = '/home/USERNAME/.env/openai_api'
+env_path = '/home/rico003/.env/openai_api'
 # Load the OpenAI API key from the .env file
 load_dotenv(env_path)
 openai.api_key = os.getenv('OPENAI_API_KEY')
@@ -15,8 +19,8 @@ def youtube_audio_downloader(link):
     yt = YouTube(link)
 
     # Check for valid youtube link
-    if 'youtube.com' not in link:
-        print('Invalid Youtube link!')
+    if 'youtube.com' not in link and 'youtu.be' not in link:
+        st.error('Ungültiger Youtube-Link!')
         return False
     
     # Downloading the Audio from the video
@@ -44,12 +48,6 @@ def transcribe(audio_file): # Add not_english=False to translate in english
     if not os.path.exists(audio_file):
         print('Audio file does not exist!')
         return False
-    # Activate if you want to translate in english
-    # if not_english:
-    #     with open(audio_file, 'rb') as f:
-    #         print('Starting translating to English ...', end='')
-    #         transcript = openai.Audio.translate('whisper-1', f)
-    #         print('Done!')
 
     with open(audio_file, 'rb') as f:
         print('Starting transcribing ...', end='')
@@ -70,7 +68,7 @@ def summarize(transcript_filename):
     with open (transcript_filename) as f:
         transcript = f.read()
 
-    system_prompt = 'I want you to act as a Life Coach!'
+    system_prompt = 'I want you to act as a Life Coach that can create good summarize!'
     prompt = f'''Create a summary of the following text in german.
     Text: {transcript}
 
@@ -79,9 +77,10 @@ def summarize(transcript_filename):
     Start your summary with an INTRODUCTION PARAGRAPH that gives an overview of the topc FOLLOWED
     by BULLET POINTS if possible AND end the summary with a CONCLUSION PHRASE. In german'''
 
+
     print('Starting summarizing ...', end='')
     response = openai.ChatCompletion.create(
-        model='gpt-3.5-turbo',
+        model='gpt-3.5-turbo-16k',
         messages=[
             {'role': 'system', 'content': system_prompt},
             {'role': 'user', 'content': prompt}
@@ -111,13 +110,24 @@ def main():
     if st.button('Start'):
         if link:
             try:
-                st.write('Herunterladen und Transkribieren des Videos...')
+                st.info('Die Bearbeitung kann je nach Länge des Videos zwischen 2 Minuten und 10 Minuten dauern.')
+                # Initialize progress bar and status text
+                progress = st.progress(0)
+                status_text = st.empty()
+
+                status_text.text('Herunterladen und Transkribieren des Videos...')
+                progress.progress(25)  # Progress after downloading and transcribing
                 mp3_file = youtube_audio_downloader(link)
                 transcript_filename = transcribe(mp3_file)
-                st.write('Erstelle Zusammenfassung...')
+                progress.progress(50)
+
+                status_text.text('Erstelle Zusammenfassung...')
+                progress.progress(75)  # Progress after summarizing
                 summary = summarize(transcript_filename)
-                st.write('Zusammenfassung:')
-                st.write(summary)
+                
+                status_text.text('Zusammenfassung:')
+                st.markdown(summary)
+                progress.progress(100)  # Progress after summary
 
                 # Delete the files after creating the summary
                 delete_files(mp3_file, transcript_filename)
