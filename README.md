@@ -79,8 +79,9 @@ The application currently supports summarization in the following languages:
 After the summary is generated, the application will automatically delete the downloaded audio and transcribed text files. This is to ensure that no sensitive information is left on the system.
 
 ## Example
-
+### Insert Youtube link, choose the language and press start
 ![Example english](1.png)
+### Result
 ![Example english](2.png)
 ## Disclaimer
 
