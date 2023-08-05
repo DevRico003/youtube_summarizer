@@ -78,6 +78,10 @@ The application currently supports summarization in the following languages:
 
 After the summary is generated, the application will automatically delete the downloaded audio and transcribed text files. This is to ensure that no sensitive information is left on the system.
 
+## Example
+
+![Example english](1.png)
+![Example english](2.png)
 ## Disclaimer
 
 Please note that this application relies on the OpenAI GPT-3.5 language model, and its performance and results are subject to the capabilities of the model and the quality of the provided data. The generated summaries may not always be perfect and may require manual editing for accuracy.
