@@ -14,6 +14,7 @@ openai.api_key = os.getenv('OPENAI_API_KEY')
 def youtube_audio_downloader(link):
 
     yt = YouTube(link)
+    video_length_seconds = yt.length  # Get video length in seconds
 
     # Check for valid youtube link
     if 'youtube.com' not in link and 'youtu.be' not in link:
@@ -39,7 +40,7 @@ def youtube_audio_downloader(link):
     audio_file =re.sub('\s+', '_', audio_file)
     os.rename(basename, audio_file)
     
-    return audio_file
+    return audio_file, video_length_seconds
 
 def transcribe(audio_file): # Add not_english=False to translate in english
     if not os.path.exists(audio_file):
@@ -58,7 +59,7 @@ def transcribe(audio_file): # Add not_english=False to translate in english
 
     return transcript_filename
 
-def summarize(transcript_filename, language):
+def summarize(transcript_filename, language, model_name):
     if not os.path.exists(transcript_filename):
         print('Transcript file does not exist!')
         return False
@@ -77,7 +78,7 @@ def summarize(transcript_filename, language):
 
     print('Starting summarizing ...', end='')
     response = openai.ChatCompletion.create(
-        model='gpt-3.5-turbo', # change the model to 'gpt-3.5-turbo-16k' for longer videos
+        model=model_name, # use selected model
         messages=[
             {'role': 'system', 'content': system_prompt},
             {'role': 'user', 'content': prompt}
@@ -115,13 +116,16 @@ def main():
 
                 status_text.text('Download and transcribe the video...')
                 progress.progress(25)  # Progress after downloading and transcribing
-                mp3_file = youtube_audio_downloader(link)
+                mp3_file, video_length_seconds = youtube_audio_downloader(link)
+                
+                # Choose model based on video length
+                model_name = 'gpt-3.5-turbo' if video_length_seconds <= 12 * 60 else 'gpt-3.5-turbo-16k'
                 transcript_filename = transcribe(mp3_file)
                 progress.progress(50)
 
                 status_text.text('Create summary...')
                 progress.progress(75)  # Progress after summarizing
-                summary = summarize(transcript_filename, language)
+                summary = summarize(transcript_filename, language, model_name)
                 
                 status_text.text('Summary:')
                 st.markdown(summary)
@@ -133,7 +137,6 @@ def main():
                 st.write(str(e))
         else:
             st.write('Please enter a valid YouTube link.')
-
 
 if __name__ == "__main__":
     main()
