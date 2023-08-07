@@ -42,7 +42,7 @@ def youtube_audio_downloader(link):
     
     return audio_file, video_length_seconds
 
-def transcribe(audio_file): # Add not_english=False to translate in english
+def transcribe(audio_file):
     if not os.path.exists(audio_file):
         print('Audio file does not exist!')
         return False
@@ -66,15 +66,12 @@ def summarize(transcript_filename, language, model_name):
     with open (transcript_filename) as f:
         transcript = f.read()
 
-    system_prompt = 'I want you to act as a Life Coach that can create good summarize!'
-    prompt = f'''Create a summary of the following text in {language}.
+    system_prompt = 'I want you to act as a Life Coach that can create good summarys!'
+    prompt = f'''Summarize the following text in {language}.
     Text: {transcript}
 
-    Add a title to the summary in {language}. 
-    Your summary should be informative and factual, covering the most important aspects of the topic. 
-    Start your summary with an INTRODUCTION PARAGRAPH that gives an overview of the topc FOLLOWED
-    by BULLET POINTS if possible AND end the summary with a CONCLUSION PHRASE. In {language}'''
-
+    Add a title to the summary. 
+    Include an INTRODUCTION, BULLET POINTS if possible, and a CONCLUSION.'''
 
     print('Starting summarizing ...', end='')
     response = openai.ChatCompletion.create(
@@ -119,7 +116,7 @@ def main():
                 mp3_file, video_length_seconds = youtube_audio_downloader(link)
                 
                 # Choose model based on video length
-                model_name = 'gpt-3.5-turbo' if video_length_seconds <= 12 * 60 else 'gpt-3.5-turbo-16k'
+                model_name = 'gpt-3.5-turbo' if video_length_seconds <= 16.5 * 60 else 'gpt-3.5-turbo-16k'
                 transcript_filename = transcribe(mp3_file)
                 progress.progress(50)
 
