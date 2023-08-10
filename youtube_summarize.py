@@ -6,7 +6,7 @@ import openai
 
 from dotenv import load_dotenv, find_dotenv
 # Specify the path to your .env file
-env_path = '/home/USER/.env/openai_api' # Change the Path
+env_path = '/home/rico003/.env/openai_api' # Change the Path
 # Load the OpenAI API key from the .env file
 load_dotenv(env_path)
 openai.api_key = os.getenv('OPENAI_API_KEY')
@@ -70,8 +70,8 @@ def summarize(transcript_filename, language, model_name):
     prompt = f'''Summarize the following text in {language}.
     Text: {transcript}
 
-    Add a title to the summary. 
-    Include an INTRODUCTION, BULLET POINTS if possible, and a CONCLUSION.'''
+    Add a title to the summary in {language}. 
+    Include an INTRODUCTION, BULLET POINTS if possible, and a CONCLUSION in {language}.'''
 
     print('Starting summarizing ...', end='')
     response = openai.ChatCompletion.create(
