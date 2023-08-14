@@ -6,7 +6,7 @@ import openai
 
 from dotenv import load_dotenv, find_dotenv
 # Specify the path to your .env file
-env_path = '/home/rico003/.env/openai_api' # Change the Path
+env_path = '/home/rico003/d.env/openai_api' # Change the Path
 # Load the OpenAI API key from the .env file
 load_dotenv(env_path)
 openai.api_key = os.getenv('OPENAI_API_KEY')

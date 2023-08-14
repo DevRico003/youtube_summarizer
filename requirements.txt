@@ -1,4 +1,4 @@
 streamlit
 openai
-pytube
+git+https://github.com/DevRico003/pytube@regex_fork
 python-dotenv
