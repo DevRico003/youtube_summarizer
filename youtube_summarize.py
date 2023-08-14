@@ -116,7 +116,7 @@ def main():
                 mp3_file, video_length_seconds = youtube_audio_downloader(link)
                 
                 # Choose model based on video length
-                model_name = 'gpt-3.5-turbo' if video_length_seconds <= 16.5 * 60 else 'gpt-3.5-turbo-16k'
+                model_name = 'gpt-3.5-turbo' if video_length_seconds <= 12 * 60 else 'gpt-3.5-turbo-16k'
                 transcript_filename = transcribe(mp3_file)
                 progress.progress(50)
 
