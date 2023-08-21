@@ -1,4 +1,5 @@
 streamlit
 openai
-git+https://github.com/DevRico003/pytube@regex_fork
-python-dotenv
+pytube
+youtube-transcript-api
+langchain

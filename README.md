@@ -1,12 +1,11 @@
 # YouTube Video Summarizer
 
-This is a Python application that allows you to summarize the content of a YouTube video using OpenAI's GPT-3.5 language model. The application downloads the audio from the provided YouTube link, transcribes it, and then generates a summary in the selected language.
+This is a Python application that allows you to summarize the content of a YouTube video using OpenAI's GPT-3.5 language model and Langchain. The application get the transcription provided by YouTube, chunks the Transcription with Langchain and generates a summary in the language of the youtube video.
 
 ## Features
-- Downloads audio from YouTube video link
-- Transcribes audio to text using OpenAI's transcription service
+- Get the Transcription from Youtube
+- Chunks the transcriptions with Langchain
 - Summarizes transcribed text using OpenAI's GPT-3.5 model
-- Deletes all temporary files after use to save space
 - Built with Streamlit for an easy-to-use web interface
 
 ## Prerequisites
@@ -18,6 +17,8 @@ Before you begin, ensure you have installed the following:
 - [PyTube](https://pytube.io/en/latest/)
 - [OpenAI](https://beta.openai.com/docs/developer-quickstart/)
 - [python-dotenv](https://pypi.org/project/python-dotenv/)
+- [youtube-transcript-api](https://pypi.org/project/youtube-transcript-api/)
+- [Langchain](https://pypi.org/project/langchain/)
 
 ## Installation 
 
@@ -49,34 +50,13 @@ streamlit run youtube_summarizer.py
 
 3. Enter the link of the YouTube video you want to summarize in the provided text input.
 
-4. Select the language in which you want the summary to be generated from the dropdown menu.
+4. Click the "Start" button to begin the summarization process.
 
-5. Click the "Start" button to begin the summarization process.
+   - The application will get the Transcription from Youtube
+   - It will then use GPT-3.5 and Langchain to generate a summary.
+   - The generated summary will be displayed on the web page in the language of the youtube video.
 
-   - The application will download the audio from the YouTube video and transcribe it.
-   - It will then use GPT-3.5 to generate a summary based on the transcribed text.
-   - The generated summary will be displayed on the web page.
-
-6. Note that the summarization process may take some time, depending on the length of the video and the GPT-3.5 model's response time.
-
-7. The summary will be presented in the form of an informative and factual overview of the video's content, including bullet points if possible. It will also include an introduction and conclusion phrase.
-
-## Supported Languages
-
-The application currently supports summarization in the following languages:
-
-- German
-- English
-- French
-- Spanish
-- Albanian
-- Polish
-- Italian
-- Russian
-
-## Cleaning Up
-
-After the summary is generated, the application will automatically delete the downloaded audio and transcribed text files. This is to ensure that no sensitive information is left on the system.
+5. The summary will be presented in the form of an informative and factual overview of the video's content, including bullet points if possible. It will also include an introduction and conclusion phrase.
 
 ## Example
 ### Insert Youtube link, choose the language and press start
