@@ -44,7 +44,7 @@ OPENAI_API_KEY=your_openai_api_key
 
 1. Run the script:
 ```bash
-streamlit run youtube_summarizer.py
+streamlit run app.py
 ```
 2. Once the web application starts, open it in your web browser.
 
