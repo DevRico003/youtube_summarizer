@@ -1,5 +1,5 @@
 streamlit
-openai==0.28
+openai==0.27.7
 pytube
 youtube-transcript-api
 langchain
