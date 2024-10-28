@@ -99,15 +99,13 @@ def get_available_languages():
     return {
         'English': 'en',
         'Deutsch': 'de',
+        'Italiano': 'it',
         'Español': 'es',
         'Français': 'fr',
-        'Italiano': 'it',
         'Nederlands': 'nl',
         'Polski': 'pl',
-        'Português': 'pt',
         '日本語': 'ja',
         '中文': 'zh',
-        '한국어': 'ko',
         'Русский': 'ru'
     }
 
@@ -127,6 +125,13 @@ def create_summary_prompt(text, target_language):
             'key_points': 'KERNPUNKTE',
             'takeaways': 'HAUPTERKENNTNISSE',
             'context': 'KONTEXT & AUSWIRKUNGEN'
+        },
+        'it': { 
+            'title': 'TITOLO',
+            'overview': 'PANORAMICA',
+            'key_points': 'PUNTI CHIAVE',
+            'takeaways': 'CONCLUSIONI PRINCIPALI',
+            'context': 'CONTESTO E IMPLICAZIONI'
         }
     }
 
