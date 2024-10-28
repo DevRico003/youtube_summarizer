@@ -5,15 +5,6 @@ from youtube_transcript_api import YouTubeTranscriptApi
 from langchain.text_splitter import RecursiveCharacterTextSplitter
 from dotenv import load_dotenv
 import re
-from pytube import YouTube
-from moviepy.editor import *
-import subprocess
-import webbrowser
-from selenium import webdriver
-from selenium.webdriver.common.by import By
-from selenium.webdriver.support.ui import WebDriverWait
-from selenium.webdriver.support import expected_conditions as EC
-import yt_dlp
 
 def load_environment():
     """Load environment variables"""
@@ -63,7 +54,7 @@ def get_transcript(youtube_url):
         video_id = extract_video_id(youtube_url)
         
         # Get cookies file path
-        cookies_file = os.path.join(os.path.dirname(__file__), 'cookies.txt')
+        cookies_file = os.getenv('COOKIE_PATH', os.path.join(os.path.dirname(__file__), 'cookies.txt'))
         
         if not os.path.exists(cookies_file):
             st.error("Cookie file not found. Please follow the setup instructions in the README.")
@@ -103,54 +94,6 @@ def get_transcript(youtube_url):
         st.error("Invalid YouTube URL. Please check the link and try again.")
         return None, None
 
-def get_transcript_with_selenium(youtube_url):
-    """Get transcript using Selenium with authentication"""
-    try:
-        options = webdriver.ChromeOptions()
-        options.add_argument('--headless')
-        options.add_argument('--no-sandbox')
-        options.add_argument('--disable-dev-shm-usage')
-        
-        driver = webdriver.Chrome(options=options)
-        
-        # Login to Google first
-        driver.get('https://accounts.google.com')
-        
-        # Login with credentials from env
-        email = driver.find_element(By.NAME, "identifier")
-        email.send_keys(os.getenv('GOOGLE_EMAIL'))
-        email.submit()
-        
-        password = WebDriverWait(driver, 10).until(
-            EC.presence_of_element_located((By.NAME, "password"))
-        )
-        password.send_keys(os.getenv('GOOGLE_PASSWORD'))
-        password.submit()
-        
-        # Now get the video
-        driver.get(youtube_url)
-        
-        # Wait for and click the transcript button
-        transcript_button = WebDriverWait(driver, 10).until(
-            EC.presence_of_element_located((By.CSS_SELECTOR, "button[aria-label='Show transcript']"))
-        )
-        transcript_button.click()
-        
-        # Get transcript text
-        transcript_elements = driver.find_elements(By.CSS_SELECTOR, "div.segment-text")
-        transcript = " ".join([elem.text for elem in transcript_elements])
-        
-        # Get language
-        language_code = 'en'  # Default to English
-        
-        return transcript, language_code
-        
-    except Exception as e:
-        st.error(f"Error getting transcript with Selenium: {str(e)}")
-        return None, None
-    finally:
-        driver.quit()
-
 def get_available_languages():
     """Return a dictionary of available languages"""
     return {
@@ -184,11 +127,9 @@ def create_summary_prompt(text, target_language):
             'key_points': 'KERNPUNKTE',
             'takeaways': 'HAUPTERKENNTNISSE',
             'context': 'KONTEXT & AUSWIRKUNGEN'
-        },
-        # Add more languages as needed...
+        }
     }
 
-    # Default to English if language not in dictionary
     prompts = language_prompts.get(target_language, language_prompts['en'])
 
     system_prompt = f"""You are an expert content analyst and summarizer. Create a comprehensive 
@@ -223,18 +164,16 @@ def create_summary_prompt(text, target_language):
     return system_prompt, user_prompt
 
 def summarize_with_langchain_and_openai(transcript, language_code, model_name='llama-3.1-8b-instant'):
-    # Split the document if it's too long
     text_splitter = RecursiveCharacterTextSplitter(
         chunk_size=2000,
         chunk_overlap=200,
         length_function=len
     )
     texts = text_splitter.split_text(transcript)
-    text_to_summarize = " ".join(texts[:4])  # Adjust this as needed
+    text_to_summarize = " ".join(texts[:4])
 
     system_prompt, user_prompt = create_summary_prompt(text_to_summarize, language_code)
 
-    # Create summary using Groq's Llama model
     try:
         response = groq_client.chat.completions.create(
             model=model_name,
@@ -243,64 +182,12 @@ def summarize_with_langchain_and_openai(transcript, language_code, model_name='l
                 {"role": "user", "content": user_prompt}
             ],
             temperature=0.7,
-            max_tokens=4000  # Llama 3.2 1B has 8k token limit in preview
+            max_tokens=4000
         )
         
         return response.choices[0].message.content
     except Exception as e:
         st.error(f"Error with Groq API: {str(e)}")
-        return None
-
-def download_audio(youtube_url):
-    """Download audio using yt-dlp with cookies from app directory"""
-    try:
-        st.info("Downloading audio...")
-        video_id = extract_video_id(youtube_url)
-        
-        temp_dir = os.getenv('TMPDIR', '/tmp/youtube_audio')
-        os.makedirs(temp_dir, exist_ok=True)
-        
-        output_file = os.path.join(temp_dir, f"{video_id}.mp3")
-        
-        # Use cookies.txt from app directory
-        cookies_file = os.path.join(os.path.dirname(__file__), 'cookies.txt')
-        
-        if not os.path.exists(cookies_file):
-            st.error("cookies.txt not found in application directory")
-            return None
-        
-        ydl_opts = {
-            'format': 'bestaudio/best',
-            'postprocessors': [{
-                'key': 'FFmpegExtractAudio',
-                'preferredcodec': 'mp3',
-                'preferredquality': '192',
-            }],
-            'outtmpl': output_file,
-            'quiet': True,
-            'no_warnings': True,
-            # Use cookies file from app directory
-            'cookiefile': cookies_file,
-            'http_headers': {
-                'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36',
-                'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8',
-                'Accept-Language': 'en-us,en;q=0.5',
-                'Sec-Fetch-Mode': 'navigate'
-            }
-        }
-        
-        with yt_dlp.YoutubeDL(ydl_opts) as ydl:
-            ydl.cache.remove()
-            ydl.download([youtube_url])
-            
-        if os.path.exists(output_file):
-            st.success("Audio downloaded successfully!")
-            return output_file
-        else:
-            raise Exception("Download completed but file not found")
-            
-    except Exception as e:
-        st.error(f"Error downloading audio: {str(e)}")
         return None
 
 def main():
@@ -310,21 +197,18 @@ def main():
     It works with both videos that have transcripts and those that don't!
     """)
     
-    # Create two columns for input fields
     col1, col2 = st.columns([3, 1])
     
     with col1:
         link = st.text_input('🔗 Enter YouTube video URL:')
     
     with col2:
-        # Language selector
         languages = get_available_languages()
         target_language = st.selectbox(
             '🌍 Select Summary Language:',
             options=list(languages.keys()),
-            index=0  # Default to English
+            index=0
         )
-        # Convert display language to language code
         target_language_code = languages[target_language]
 
     if st.button('Generate Summary'):
@@ -337,7 +221,7 @@ def main():
                     status_text.text('📥 Fetching video transcript...')
                     progress.progress(25)
 
-                    transcript, _ = get_transcript(link)  # Original language doesn't matter now
+                    transcript, _ = get_transcript(link)
 
                     status_text.text(f'🤖 Generating {target_language} summary...')
                     progress.progress(75)
