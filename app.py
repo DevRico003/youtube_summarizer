@@ -1,24 +1,12 @@
 import os
 from openai import OpenAI
 import streamlit as st
-from googleapiclient.discovery import build
+from youtube_transcript_api import YouTubeTranscriptApi
 from langchain.text_splitter import RecursiveCharacterTextSplitter
 from dotenv import load_dotenv
 import re
-from selenium import webdriver
-from selenium.webdriver.common.by import By
-from selenium.webdriver.support.ui import WebDriverWait
-from selenium.webdriver.support import expected_conditions as EC
 from pytube import YouTube
-import subprocess
-import pafy
-import youtube_dl
 from moviepy.editor import *
-import requests
-from youtube_transcript_api import YouTubeTranscriptApi
-from transformers import pipeline
-import nltk
-nltk.download('punkt')
 
 def load_environment():
     """Load environment variables"""
@@ -26,27 +14,15 @@ def load_environment():
     if os.path.exists(env_path):
         load_dotenv(env_path)
     
-    required_vars = {
-        'GROQ_API_KEY': "GROQ_API_KEY not found",
-        'YOUTUBE_API_KEY': "YOUTUBE_API_KEY not found"
-    }
+    api_key = os.getenv('GROQ_API_KEY')
+    if not api_key:
+        raise ValueError("GROQ_API_KEY not found in environment variables")
     
-    missing_vars = []
-    env_vars = {}
-    for var, message in required_vars.items():
-        value = os.getenv(var)
-        if not value:
-            missing_vars.append(message)
-        env_vars[var] = value
-    
-    if missing_vars:
-        raise ValueError("\n".join(missing_vars))
-    
-    return env_vars
+    return api_key
 
 # Initialize Groq client
 try:
-    api_key = load_environment()['GROQ_API_KEY']
+    api_key = load_environment()
     groq_client = OpenAI(
         api_key=api_key,
         base_url="https://api.groq.com/openai/v1"
@@ -75,7 +51,7 @@ def extract_video_id(youtube_url):
     raise ValueError("Could not extract video ID from URL")
 
 def get_transcript(youtube_url):
-    """Get transcript using YouTube Transcript API with Transformers fallback"""
+    """Get transcript using YouTube Transcript API with Groq Whisper fallback"""
     try:
         video_id = extract_video_id(youtube_url)
         st.info(f"Getting transcript for video: {video_id}")
@@ -97,41 +73,29 @@ def get_transcript(youtube_url):
                 
         except Exception as e:
             st.warning(f"YouTube transcript not available: {str(e)}")
-            st.info("Attempting to transcribe with Transformers...")
+            st.info("Attempting to transcribe with Groq Whisper...")
             
             try:
-                # Use Transformers pipeline for transcription
-                transcriber = pipeline(
-                    "automatic-speech-recognition",
-                    model="openai/whisper-large-v3",
-                    device="cpu"
-                )
-                
-                # Get video URL
-                yt = YouTube(youtube_url)
-                
-                # Get audio stream
-                audio_stream = yt.streams.filter(only_audio=True).first()
-                
-                if not audio_stream:
-                    raise Exception("No audio stream found")
-                
                 # Download audio
-                audio_file = audio_stream.download(
-                    output_path=os.getenv('TMPDIR', '/tmp'),
-                    filename=f"{video_id}_temp.mp4"
-                )
+                audio_file = download_audio(youtube_url)
                 
-                # Transcribe with Transformers
-                result = transcriber(audio_file)
-                transcript = result["text"]
-                
-                # Cleanup
-                if os.path.exists(audio_file):
-                    os.remove(audio_file)
-                
-                st.success("Transcription successful!")
-                return transcript, 'en'  # Default to English
+                if audio_file and os.path.exists(audio_file):
+                    try:
+                        # Transcribe with Groq's Whisper
+                        with open(audio_file, "rb") as audio:
+                            transcript = groq_client.audio.transcriptions.create(
+                                model="whisper-large-v3",
+                                file=audio,
+                                response_format="text"
+                            )
+                        st.success("Transcription successful!")
+                        return transcript, 'en'  # Default to English
+                    finally:
+                        # Cleanup
+                        if os.path.exists(audio_file):
+                            os.remove(audio_file)
+                else:
+                    raise Exception("Audio download failed")
                 
             except Exception as e:
                 st.error(f"Transcription failed: {str(e)}")
@@ -290,52 +254,46 @@ def summarize_with_langchain_and_openai(transcript, language_code, model_name='l
         return None
 
 def download_audio(youtube_url):
-    """Download audio using moviepy"""
+    """Download audio using pytube"""
     try:
-        st.info("Downloading audio with moviepy...")
+        st.info("Downloading audio...")
         video_id = extract_video_id(youtube_url)
         
         # Create temporary directory if it doesn't exist
         temp_dir = os.getenv('TMPDIR', '/tmp/youtube_audio')
         os.makedirs(temp_dir, exist_ok=True)
         
-        # Download video
-        from pytube import YouTube
+        # Initialize YouTube object
         yt = YouTube(youtube_url)
         
-        # Get the stream with both video and audio
-        stream = yt.streams.filter(progressive=True, file_extension='mp4').order_by('resolution').desc().first()
+        # Get only audio stream
+        audio_stream = yt.streams.filter(only_audio=True, file_extension='mp4').first()
         
-        if not stream:
-            raise Exception("No suitable stream found")
+        if not audio_stream:
+            raise Exception("No audio stream found")
         
-        # Download the video
-        temp_video = os.path.join(temp_dir, f"{video_id}_temp.mp4")
-        stream.download(output_path=temp_dir, filename=f"{video_id}_temp.mp4")
-        
-        if not os.path.exists(temp_video):
-            raise Exception("Video download failed")
-            
-        # Extract audio using moviepy
+        # Download audio
         output_file = os.path.join(temp_dir, f"{video_id}.mp3")
-        video = VideoFileClip(temp_video)
-        audio = video.audio
-        audio.write_audiofile(output_file)
+        downloaded_file = audio_stream.download(
+            output_path=temp_dir,
+            filename=f"{video_id}_temp.mp4"
+        )
         
-        # Clean up
-        video.close()
-        audio.close()
-        if os.path.exists(temp_video):
-            os.remove(temp_video)
-            
+        # Convert to MP3 using FFmpeg
+        os.system(f'ffmpeg -i "{downloaded_file}" -vn -acodec libmp3lame -ab 128k -ar 44100 "{output_file}" -y')
+        
+        # Clean up temporary file
+        if os.path.exists(downloaded_file):
+            os.remove(downloaded_file)
+        
         if os.path.exists(output_file):
-            st.success("Audio extracted successfully!")
+            st.success("Audio downloaded successfully!")
             return output_file
         else:
-            raise Exception("Audio extraction failed")
+            raise Exception("Audio conversion failed")
             
     except Exception as e:
-        st.error(f"Error downloading/converting audio: {str(e)}")
+        st.error(f"Error downloading audio: {str(e)}")
         return None
 
 def main():
