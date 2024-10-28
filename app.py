@@ -13,6 +13,8 @@ from pytube import YouTube
 import subprocess
 import pafy
 import youtube_dl
+from moviepy.editor import *
+import requests
 
 def load_environment():
     """Load environment variables"""
@@ -302,41 +304,52 @@ def summarize_with_langchain_and_openai(transcript, language_code, model_name='l
         return None
 
 def download_audio(youtube_url):
-    """Download audio using youtube-dl"""
+    """Download audio using moviepy"""
     try:
-        st.info("Downloading audio with youtube-dl...")
+        st.info("Downloading audio with moviepy...")
+        video_id = extract_video_id(youtube_url)
         
-        ydl_opts = {
-            'format': 'bestaudio/best',
-            'postprocessors': [{
-                'key': 'FFmpegExtractAudio',
-                'preferredcodec': 'mp3',
-                'preferredquality': '192',
-            }],
-            'outtmpl': os.path.join(os.getenv('TMPDIR', '/tmp'), '%(id)s.%(ext)s'),
-            'quiet': True,
-            'no_warnings': True,
-            'extract_flat': False,
-            'force_generic_extractor': False,
-            'geo_bypass': True,
-            'cachedir': False,
-            'http_headers': {
-                'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36'
-            }
-        }
+        # Create temporary directory if it doesn't exist
+        temp_dir = os.getenv('TMPDIR', '/tmp/youtube_audio')
+        os.makedirs(temp_dir, exist_ok=True)
         
-        with youtube_dl.YoutubeDL(ydl_opts) as ydl:
-            info = ydl.extract_info(youtube_url, download=True)
-            output_file = os.path.join(os.getenv('TMPDIR', '/tmp'), f"{info['id']}.mp3")
+        # Download video
+        from pytube import YouTube
+        yt = YouTube(youtube_url)
+        
+        # Get the stream with both video and audio
+        stream = yt.streams.filter(progressive=True, file_extension='mp4').order_by('resolution').desc().first()
+        
+        if not stream:
+            raise Exception("No suitable stream found")
+        
+        # Download the video
+        temp_video = os.path.join(temp_dir, f"{video_id}_temp.mp4")
+        stream.download(output_path=temp_dir, filename=f"{video_id}_temp.mp4")
+        
+        if not os.path.exists(temp_video):
+            raise Exception("Video download failed")
             
-            if os.path.exists(output_file):
-                st.success("Audio downloaded successfully!")
-                return output_file
-            else:
-                raise Exception("Download completed but file not found")
-                
+        # Extract audio using moviepy
+        output_file = os.path.join(temp_dir, f"{video_id}.mp3")
+        video = VideoFileClip(temp_video)
+        audio = video.audio
+        audio.write_audiofile(output_file)
+        
+        # Clean up
+        video.close()
+        audio.close()
+        if os.path.exists(temp_video):
+            os.remove(temp_video)
+            
+        if os.path.exists(output_file):
+            st.success("Audio extracted successfully!")
+            return output_file
+        else:
+            raise Exception("Audio extraction failed")
+            
     except Exception as e:
-        st.error(f"Error downloading audio: {str(e)}")
+        st.error(f"Error downloading/converting audio: {str(e)}")
         return None
 
 def main():

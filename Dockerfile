@@ -1,8 +1,9 @@
 FROM python:3.9-slim
 
-# Install FFmpeg
+# Install system dependencies
 RUN apt-get update && apt-get install -y \
     ffmpeg \
+    libsndfile1 \
     && rm -rf /var/lib/apt/lists/*
 
 # Create and set working directory
