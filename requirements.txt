@@ -4,7 +4,4 @@ youtube_transcript_api
 langchain
 python-dotenv
 yt-dlp
-
-
-
-
+requests>=2.31.0
