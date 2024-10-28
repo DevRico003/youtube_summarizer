@@ -5,3 +5,5 @@ langchain
 python-dotenv
 yt-dlp
 requests>=2.31.0
+webdriver-manager
+selenium>=4.0.0

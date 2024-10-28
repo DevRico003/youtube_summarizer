@@ -79,7 +79,7 @@ def get_youtube_cookies():
             email_field.clear()
             email_field.send_keys(email)
             email_field.send_keys(Keys.RETURN)
-            time.sleep(5)  # Längere Wartezeit nach Email-Eingabe
+            time.sleep(5)
             
             # Passwort eingeben
             print("Passwort eingeben...")
@@ -106,10 +106,19 @@ def get_youtube_cookies():
             password_field.send_keys(Keys.RETURN)
             time.sleep(5)
             
-            # Zu YouTube navigieren
-            print("Navigiere zu YouTube...")
-            driver.get('https://www.youtube.com')
-            time.sleep(5)
+            # Navigiere zum spezifischen Video
+            print("Navigiere zum Video...")
+            driver.get('https://www.youtube.com/watch?v=fr0uRT9mW5k')
+            time.sleep(5)  # Warte auf Video-Ladung
+            
+            # Optional: Warte auf Video-Player
+            try:
+                WebDriverWait(driver, 10).until(
+                    EC.presence_of_element_located((By.ID, "movie_player"))
+                )
+                print("Video-Player gefunden")
+            except:
+                print("Video-Player nicht gefunden, fahre trotzdem fort")
             
             # Cookies speichern
             cookies = driver.get_cookies()
