@@ -43,7 +43,7 @@ except Exception as e:
     st.stop()
 
 def download_audio(youtube_url):
-    """Download audio from YouTube video with authentication"""
+    """Download audio from YouTube video without browser cookies"""
     ydl_opts = {
         'format': 'bestaudio/best',
         'postprocessors': [{
@@ -54,15 +54,30 @@ def download_audio(youtube_url):
         'outtmpl': '%(id)s.%(ext)s',
         'quiet': True,
         'no_warnings': True,
-        # YouTube authentication options
-        'cookiesfrombrowser': ('chrome',),  # Use cookies from Chrome browser
-        # Add these options to handle bot protection
+        'nocheckcertificate': True,
+        'ignoreerrors': False,
+        'no_color': True,
+        # Enhanced options for bot protection bypass
         'http_headers': {
             'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
-            'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8',
-            'Accept-Language': 'en-us,en;q=0.5',
+            'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,image/webp,*/*;q=0.8',
+            'Accept-Language': 'en-US,en;q=0.5',
+            'Accept-Encoding': 'gzip, deflate, br',
+            'DNT': '1',
+            'Connection': 'keep-alive',
+            'Upgrade-Insecure-Requests': '1',
+            'Sec-Fetch-Dest': 'document',
             'Sec-Fetch-Mode': 'navigate',
-        }
+            'Sec-Fetch-Site': 'none',
+            'Sec-Fetch-User': '?1',
+            'TE': 'trailers'
+        },
+        # Additional options to bypass restrictions
+        'extractor_retries': 3,
+        'file_access_retries': 3,
+        'fragment_retries': 3,
+        'skip_download_archive': True,
+        'rm_cachedir': True
     }
     
     try:
@@ -77,9 +92,10 @@ def download_audio(youtube_url):
             fallback_opts = ydl_opts.copy()
             fallback_opts.update({
                 'format': 'worstaudio/worst',
-                'cookiesfrombrowser': ('firefox',),  # Try Firefox as fallback
                 'extract_flat': True,
                 'force_generic_extractor': True,
+                'youtube_include_dash_manifest': False,
+                'youtube_include_hls_manifest': False
             })
             with yt_dlp.YoutubeDL(fallback_opts) as ydl:
                 info = ydl.extract_info(youtube_url, download=True)
