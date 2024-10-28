@@ -11,6 +11,8 @@ from selenium.webdriver.support.ui import WebDriverWait
 from selenium.webdriver.support import expected_conditions as EC
 from pytube import YouTube
 import subprocess
+import pafy
+import youtube_dl
 
 def load_environment():
     """Load environment variables"""
@@ -300,54 +302,39 @@ def summarize_with_langchain_and_openai(transcript, language_code, model_name='l
         return None
 
 def download_audio(youtube_url):
-    """Download audio using pytube with fallback options"""
+    """Download audio using youtube-dl"""
     try:
-        st.info("Downloading audio with pytube...")
+        st.info("Downloading audio with youtube-dl...")
         
-        # Initialize YouTube object with custom parameters
-        yt = YouTube(
-            youtube_url,
-            use_oauth=True,
-            allow_oauth_cache=True
-        )
+        ydl_opts = {
+            'format': 'bestaudio/best',
+            'postprocessors': [{
+                'key': 'FFmpegExtractAudio',
+                'preferredcodec': 'mp3',
+                'preferredquality': '192',
+            }],
+            'outtmpl': os.path.join(os.getenv('TMPDIR', '/tmp'), '%(id)s.%(ext)s'),
+            'quiet': True,
+            'no_warnings': True,
+            'extract_flat': False,
+            'force_generic_extractor': False,
+            'geo_bypass': True,
+            'cachedir': False,
+            'http_headers': {
+                'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36'
+            }
+        }
         
-        # Get the audio stream
-        audio_stream = yt.streams.filter(only_audio=True).first()
-        
-        if not audio_stream:
-            raise Exception("No audio stream found")
+        with youtube_dl.YoutubeDL(ydl_opts) as ydl:
+            info = ydl.extract_info(youtube_url, download=True)
+            output_file = os.path.join(os.getenv('TMPDIR', '/tmp'), f"{info['id']}.mp3")
             
-        # Download to temporary file
-        temp_file = audio_stream.download(
-            output_path=os.getenv('TMPDIR', '/tmp'),
-            filename=f"{yt.video_id}_temp.mp4"
-        )
-        
-        # Convert to MP3 using FFmpeg
-        output_file = os.path.join(os.getenv('TMPDIR', '/tmp'), f"{yt.video_id}.mp3")
-        
-        # FFmpeg command to convert to MP3
-        command = [
-            'ffmpeg',
-            '-i', temp_file,
-            '-vn',  # No video
-            '-acodec', 'libmp3lame',
-            '-ab', '192k',
-            '-ar', '44100',
-            '-y',  # Overwrite output file
-            output_file
-        ]
-        
-        # Execute FFmpeg command
-        subprocess.run(command, check=True, capture_output=True)
-        
-        # Clean up temporary file
-        if os.path.exists(temp_file):
-            os.remove(temp_file)
-            
-        st.success("Audio downloaded and converted successfully!")
-        return output_file
-        
+            if os.path.exists(output_file):
+                st.success("Audio downloaded successfully!")
+                return output_file
+            else:
+                raise Exception("Download completed but file not found")
+                
     except Exception as e:
         st.error(f"Error downloading audio: {str(e)}")
         return None
