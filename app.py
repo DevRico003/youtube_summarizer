@@ -8,21 +8,39 @@ import yt_dlp
 import tempfile
 import re  # Add this at the top with other imports
 
-# Load environment variables
-env_path = '/home/devrico003/youtube_summarizer/.env'  # Change the Path
-load_dotenv(env_path)
+# More flexible environment variable loading
+def load_environment():
+    """Load environment variables from .env file or system environment"""
+    # Try to load from .env file if it exists (local development)
+    env_path = os.path.join(os.path.dirname(__file__), '.env')
+    if os.path.exists(env_path):
+        load_dotenv(env_path)
+    
+    # Get API key from environment (works with both .env and system environment)
+    api_key = os.getenv('GROQ_API_KEY')
+    if not api_key:
+        raise ValueError("GROQ_API_KEY not found in environment variables")
+    
+    return api_key
 
-# Initialize Groq client with OpenAI compatibility
-groq_client = OpenAI(
-    api_key=os.getenv('GROQ_API_KEY'),
-    base_url="https://api.groq.com/openai/v1"
-)
+# Initialize clients with environment variables
+try:
+    api_key = load_environment()
+    
+    # Initialize Groq client with OpenAI compatibility
+    groq_client = OpenAI(
+        api_key=api_key,
+        base_url="https://api.groq.com/openai/v1"
+    )
 
-# Separate OpenAI client for Whisper
-whisper_client = OpenAI(
-    api_key=os.getenv('GROQ_API_KEY'),
-    base_url="https://api.groq.com/openai/v1"
-)
+    # Separate client for Whisper
+    whisper_client = OpenAI(
+        api_key=api_key,
+        base_url="https://api.groq.com/openai/v1"
+    )
+except Exception as e:
+    st.error(f"Error initializing API clients: {str(e)}")
+    st.stop()
 
 def download_audio(youtube_url):
     """Download audio from YouTube video"""
