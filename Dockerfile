@@ -46,12 +46,15 @@ ENV PYTHONUNBUFFERED=1
 ENV COOKIE_PATH=/app/data/cookies.txt
 ENV DISPLAY=:99
 
-# Make scripts executable
-RUN chmod +x entrypoint.sh \
-    && chmod +x update_cookies.py
+# Copy and make scripts executable
+COPY init_cookies.sh /app/
+COPY entrypoint.sh /app/
+RUN chmod +x /app/init_cookies.sh \
+    && chmod +x /app/entrypoint.sh \
+    && chmod +x /app/update_cookies.py
 
 # Expose Streamlit port
 EXPOSE 8501
 
-# Run entrypoint script
-CMD ["./entrypoint.sh"]
+# Run init_cookies first, then entrypoint
+ENTRYPOINT ["/bin/bash", "-c", "/app/init_cookies.sh && ./entrypoint.sh"]
