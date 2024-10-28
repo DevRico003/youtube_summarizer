@@ -1,16 +1,7 @@
 FROM python:3.9-slim
 
-# Install system dependencies
-RUN apt-get update && apt-get install -y \
-    ffmpeg \
-    && rm -rf /var/lib/apt/lists/*
-
 # Create and set working directory
 WORKDIR /app
-
-# Upgrade pip and install yt-dlp separately to ensure latest version
-RUN pip install --no-cache-dir --upgrade pip && \
-    pip install --no-cache-dir yt-dlp --upgrade
 
 # Copy requirements first to leverage Docker cache
 COPY requirements.txt .
@@ -21,13 +12,6 @@ COPY . .
 
 # Set environment variables
 ENV PYTHONUNBUFFERED=1
-
-# Create directory for temporary files
-RUN mkdir -p /tmp/youtube_audio && \
-    chmod 777 /tmp/youtube_audio
-
-# Set working directory for temporary files
-ENV TMPDIR=/tmp/youtube_audio
 
 # Expose Streamlit port
 EXPOSE 8501

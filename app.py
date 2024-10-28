@@ -4,140 +4,30 @@ import streamlit as st
 from youtube_transcript_api import YouTubeTranscriptApi
 from langchain.text_splitter import RecursiveCharacterTextSplitter
 from dotenv import load_dotenv
-import yt_dlp
-import tempfile
-import re  # Add this at the top with other imports
+import re
 
-# More flexible environment variable loading
 def load_environment():
     """Load environment variables from .env file or system environment"""
     env_path = os.path.join(os.path.dirname(__file__), '.env')
     if os.path.exists(env_path):
         load_dotenv(env_path)
     
-    # Check for required environment variables
-    required_vars = {
-        'GROQ_API_KEY': "GROQ_API_KEY not found in environment variables",
-        'YOUTUBE_EMAIL': "YOUTUBE_EMAIL not found in environment variables",
-        'YOUTUBE_PASSWORD': "YOUTUBE_PASSWORD not found in environment variables"
-    }
+    api_key = os.getenv('GROQ_API_KEY')
+    if not api_key:
+        raise ValueError("GROQ_API_KEY not found in environment variables")
     
-    missing_vars = []
-    for var, message in required_vars.items():
-        if not os.getenv(var):
-            missing_vars.append(message)
-    
-    if missing_vars:
-        raise ValueError("\n".join(missing_vars))
-    
-    return os.getenv('GROQ_API_KEY')
+    return api_key
 
-# Initialize clients with environment variables
+# Initialize Groq client
 try:
     api_key = load_environment()
-    
-    # Initialize Groq client with OpenAI compatibility
     groq_client = OpenAI(
         api_key=api_key,
         base_url="https://api.groq.com/openai/v1"
     )
-
-    # Separate client for Whisper
-    whisper_client = OpenAI(
-        api_key=api_key,
-        base_url="https://api.groq.com/openai/v1"
-    )
 except Exception as e:
-    st.error(f"Error initializing API clients: {str(e)}")
+    st.error(f"Error initializing API client: {str(e)}")
     st.stop()
-
-def download_audio(youtube_url):
-    """Download audio from YouTube video with email/password authentication"""
-    ydl_opts = {
-        'format': 'bestaudio/best',
-        'postprocessors': [{
-            'key': 'FFmpegExtractAudio',
-            'preferredcodec': 'mp3',
-            'preferredquality': '192',
-        }],
-        'outtmpl': '%(id)s.%(ext)s',
-        'quiet': False,
-        'verbose': True,
-        # YouTube authentication using email and password
-        'username': os.getenv('YOUTUBE_EMAIL'),
-        'password': os.getenv('YOUTUBE_PASSWORD'),
-        'http_headers': {
-            'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
-            'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,image/apng,*/*;q=0.8',
-            'Accept-Language': 'en-US,en;q=0.9',
-            'Accept-Encoding': 'gzip, deflate, br',
-            'Referer': 'https://www.youtube.com/',
-            'Origin': 'https://www.youtube.com',
-        }
-    }
-
-    try:
-        st.info("Starting YouTube authentication process...")
-        with yt_dlp.YoutubeDL(ydl_opts) as ydl:
-            # Clear cache before starting
-            ydl.cache.remove()
-            
-            try:
-                # Try with email/password authentication
-                info = ydl.extract_info(youtube_url, download=False)
-                if info is None:
-                    raise Exception("Could not extract video info")
-                
-                # Download with authentication
-                ydl.download([youtube_url])
-                video_id = info['id']
-                audio_file = f"{video_id}.mp3"
-                
-                if os.path.exists(audio_file):
-                    st.success(f"Audio downloaded successfully: {audio_file}")
-                    return audio_file
-                    
-            except Exception as auth_error:
-                st.warning(f"Authentication failed: {str(auth_error)}")
-                st.info("Attempting alternative download method...")
-                
-                # Try alternative method
-                alt_opts = ydl_opts.copy()
-                alt_opts.update({
-                    'format': 'bestaudio[ext=m4a]/bestaudio/best',
-                    'username': None,
-                    'password': None
-                })
-                
-                with yt_dlp.YoutubeDL(alt_opts) as alt_ydl:
-                    info = alt_ydl.extract_info(youtube_url, download=True)
-                    audio_file = f"{info['id']}.mp3"
-                    
-                    if os.path.exists(audio_file):
-                        st.success(f"Audio downloaded with alternative method: {audio_file}")
-                        return audio_file
-                    
-        raise Exception("Could not download audio with any method")
-                
-    except Exception as e:
-        st.error(f"All download attempts failed: {str(e)}")
-        return None
-
-def transcribe_audio(audio_file):
-    """
-    Transcribe audio using Groq's Whisper Large V3 Turbo
-    """
-    try:
-        with open(audio_file, "rb") as audio:
-            transcript = whisper_client.audio.transcriptions.create(
-                model="whisper-large-v3-turbo",
-                file=audio,
-                response_format="text"
-            )
-        return transcript
-    finally:
-        if os.path.exists(audio_file):
-            os.remove(audio_file)
 
 def extract_video_id(youtube_url):
     """Extract video ID from different YouTube URL formats"""
@@ -149,7 +39,6 @@ def extract_video_id(youtube_url):
         r'^([0-9A-Za-z_-]{11})$'  # Just the video ID
     ]
     
-    # Clean the URL first
     youtube_url = youtube_url.strip()
     
     for pattern in patterns:
@@ -160,53 +49,36 @@ def extract_video_id(youtube_url):
     raise ValueError("Could not extract video ID from URL")
 
 def get_transcript(youtube_url):
-    """Get transcript from YouTube with enhanced error handling"""
+    """Get transcript from YouTube"""
     try:
         video_id = extract_video_id(youtube_url)
-        st.info(f"Processing video ID: {video_id}")
+        st.info(f"Getting transcript for video: {video_id}")
         
-        # First attempt: Try getting transcript directly
         try:
+            # Try to get available transcripts
             transcript_list = YouTubeTranscriptApi.list_transcripts(video_id)
+            
+            # First try to get manual transcript
             try:
                 transcript = transcript_list.find_manually_created_transcript()
                 st.success("Found manual transcript!")
             except:
+                # If no manual transcript, get auto-generated one
                 transcript = next(iter(transcript_list))
                 st.success("Found auto-generated transcript!")
             
+            # Get the transcript text
             full_transcript = " ".join([part['text'] for part in transcript.fetch()])
             language_code = transcript.language_code
+            
             return full_transcript, language_code
             
         except Exception as e:
-            st.warning(f"YouTube transcript not available: {str(e)}")
-            
-            # Audio transcription attempt
-            st.info("Attempting to download and transcribe audio...")
-            try:
-                # Explicitly construct the full YouTube URL
-                full_url = f"https://www.youtube.com/watch?v={video_id}"
-                st.info(f"Downloading audio from: {full_url}")
-                
-                audio_file = download_audio(full_url)
-                if audio_file and os.path.exists(audio_file):
-                    st.success(f"Audio downloaded successfully: {audio_file}")
-                    full_transcript = transcribe_audio(audio_file)
-                    if full_transcript:
-                        st.success("Audio transcription successful!")
-                        return full_transcript, 'en'
-                    else:
-                        raise Exception("Transcription failed")
-                else:
-                    raise Exception("Audio download failed")
-                    
-            except Exception as e3:
-                st.error(f"Audio processing failed: {str(e3)}")
-                raise Exception(f"Could not process video: {str(e3)}")
+            st.error(f"Could not get transcript: {str(e)}")
+            return None, None
         
     except Exception as e:
-        st.error(f"Could not get transcript: {str(e)}")
+        st.error(f"Error processing video: {str(e)}")
         return None, None
 
 def get_available_languages():

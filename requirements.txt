@@ -1,8 +1,5 @@
 streamlit
 openai>=1.0.0
-pytube
 youtube-transcript-api
 langchain
 python-dotenv
-yt-dlp
-requests>=2.31.0
