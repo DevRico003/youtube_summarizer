@@ -58,14 +58,36 @@ def extract_video_id(youtube_url):
     raise ValueError("Could not extract video ID from URL")
 
 def get_transcript(youtube_url):
-    """Get transcript using YouTube Transcript API with Groq Whisper fallback"""
+    """Get transcript using YouTube Transcript API with cookies"""
     try:
         video_id = extract_video_id(youtube_url)
         st.info(f"Getting transcript for video: {video_id}")
         
+        # Get cookies file path
+        cookies_file = os.path.join(os.path.dirname(__file__), 'cookies.txt')
+        
+        if not os.path.exists(cookies_file):
+            st.error("cookies.txt not found in application directory")
+            return None, None
+            
         try:
-            # First try with YouTube Transcript API
-            transcript_list = YouTubeTranscriptApi.list_transcripts(video_id)
+            # Configure YouTube Transcript API with cookies
+            from youtube_transcript_api import YouTubeTranscriptApi
+            from youtube_transcript_api.formatters import TextFormatter
+            
+            # Read cookies from file
+            with open(cookies_file, 'r') as f:
+                cookies_content = f.read()
+                
+            # Set up headers with cookies
+            headers = {
+                'Cookie': cookies_content,
+                'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36'
+            }
+            
+            # Get transcript with cookies
+            transcript_list = YouTubeTranscriptApi.list_transcripts(video_id, cookies=cookies_file)
+            
             try:
                 transcript = transcript_list.find_manually_created_transcript()
                 st.success("Found manual transcript!")
@@ -79,34 +101,8 @@ def get_transcript(youtube_url):
             return full_transcript, language_code
                 
         except Exception as e:
-            st.warning(f"YouTube transcript not available: {str(e)}")
-            st.info("Attempting to transcribe with Groq Whisper...")
-            
-            try:
-                # Download audio
-                audio_file = download_audio(youtube_url)
-                
-                if audio_file and os.path.exists(audio_file):
-                    try:
-                        # Transcribe with Groq's Whisper
-                        with open(audio_file, "rb") as audio:
-                            transcript = groq_client.audio.transcriptions.create(
-                                model="whisper-large-v3-turbo",
-                                file=audio,
-                                response_format="text"
-                            )
-                        st.success("Transcription successful!")
-                        return transcript, 'en'  # Default to English
-                    finally:
-                        # Cleanup
-                        if os.path.exists(audio_file):
-                            os.remove(audio_file)
-                else:
-                    raise Exception("Audio download failed")
-                
-            except Exception as e:
-                st.error(f"Transcription failed: {str(e)}")
-                return None, None
+            st.error(f"Could not get transcript: {str(e)}")
+            return None, None
             
     except Exception as e:
         st.error(f"Error processing video: {str(e)}")
