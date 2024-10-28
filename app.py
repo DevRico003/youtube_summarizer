@@ -41,7 +41,7 @@ except Exception as e:
     st.stop()
 
 def download_audio(youtube_url):
-    """Download audio from YouTube video with OAuth authentication"""
+    """Download audio from YouTube video"""
     ydl_opts = {
         'format': 'bestaudio/best',
         'postprocessors': [{
@@ -50,58 +50,47 @@ def download_audio(youtube_url):
             'preferredquality': '192',
         }],
         'outtmpl': '%(id)s.%(ext)s',
-        'quiet': True,
-        'no_warnings': True,
-        # YouTube OAuth authentication
-        'username': 'oauth',  # Use OAuth authentication
-        'password': '',       # Empty password for OAuth
+        'quiet': False,  # Enable output for debugging
+        'no_warnings': False,  # Show warnings
+        'verbose': True,  # Add verbose output
         # Additional options
         'nocheckcertificate': True,
         'ignoreerrors': False,
         'no_color': True,
+        'extract_flat': False,
+        'force_generic_extractor': False,
+        'geo_bypass': True,
         'http_headers': {
             'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
-            'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,image/webp,*/*;q=0.8',
-            'Accept-Language': 'en-US,en;q=0.5',
-            'Accept-Encoding': 'gzip, deflate, br',
         }
     }
     
     try:
+        st.info("Starting audio download...")
         with yt_dlp.YoutubeDL(ydl_opts) as ydl:
+            st.info("Extracting video info...")
             info = ydl.extract_info(youtube_url, download=True)
             audio_file = f"{info['id']}.mp3"
-        return audio_file
+            st.success(f"Audio downloaded: {audio_file}")
+            return audio_file
     except Exception as e:
-        st.error(f"Error downloading audio: {str(e)}")
-        # Fallback method without authentication
+        st.error(f"Error in primary download method: {str(e)}")
+        # Fallback method
         try:
-            fallback_opts = {
-                'format': 'bestaudio/best',
-                'postprocessors': [{
-                    'key': 'FFmpegExtractAudio',
-                    'preferredcodec': 'mp3',
-                    'preferredquality': '192',
-                }],
-                'outtmpl': '%(id)s.%(ext)s',
-                'quiet': True,
-                'no_warnings': True,
-                'extract_flat': True,
-                'force_generic_extractor': True,
-                'geo_bypass': True,
-                'nocheckcertificate': True,
-                'ignoreerrors': True,
-                'no_color': True,
-                'http_headers': {
-                    'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
-                }
-            }
+            st.info("Attempting fallback download method...")
+            fallback_opts = ydl_opts.copy()
+            fallback_opts.update({
+                'format': 'worstaudio/worst',
+                'extract_flat': True
+            })
             with yt_dlp.YoutubeDL(fallback_opts) as ydl:
                 info = ydl.extract_info(youtube_url, download=True)
                 audio_file = f"{info['id']}.mp3"
-            return audio_file
+                st.success(f"Audio downloaded with fallback: {audio_file}")
+                return audio_file
         except Exception as e:
-            raise Exception(f"Could not download audio even with fallback method: {str(e)}")
+            st.error(f"Fallback download failed: {str(e)}")
+            return None
 
 def transcribe_audio(audio_file):
     """
@@ -143,54 +132,47 @@ def get_transcript(youtube_url):
     """Get transcript from YouTube with enhanced error handling"""
     try:
         video_id = extract_video_id(youtube_url)
+        st.info(f"Processing video ID: {video_id}")
         
         # First attempt: Try getting transcript directly
         try:
             transcript_list = YouTubeTranscriptApi.list_transcripts(video_id)
             try:
                 transcript = transcript_list.find_manually_created_transcript()
+                st.success("Found manual transcript!")
             except:
                 transcript = next(iter(transcript_list))
+                st.success("Found auto-generated transcript!")
             
             full_transcript = " ".join([part['text'] for part in transcript.fetch()])
             language_code = transcript.language_code
             return full_transcript, language_code
             
         except Exception as e:
-            st.warning(f"Direct transcript access failed: {str(e)}")
+            st.warning(f"YouTube transcript not available: {str(e)}")
             
-            # Second attempt: Try with different language options
+            # Audio transcription attempt
+            st.info("Attempting to download and transcribe audio...")
             try:
-                transcripts = YouTubeTranscriptApi.list_transcripts(video_id)
-                available_transcripts = transcripts._manually_created_transcripts.copy()
-                available_transcripts.update(transcripts._generated_transcripts)
+                # Explicitly construct the full YouTube URL
+                full_url = f"https://www.youtube.com/watch?v={video_id}"
+                st.info(f"Downloading audio from: {full_url}")
                 
-                for lang_code in ['en', 'de', 'es', 'fr', 'auto']:
-                    if lang_code in available_transcripts:
-                        transcript = available_transcripts[lang_code]
-                        full_transcript = " ".join([part['text'] for part in transcript.fetch()])
-                        return full_transcript, lang_code
-                        
-            except Exception as e2:
-                st.warning(f"Language-specific transcript access failed: {str(e2)}")
-                
-                # Third attempt: Try getting any available transcript
-                try:
-                    transcript = YouTubeTranscriptApi.get_transcript(video_id)
-                    full_transcript = " ".join([part['text'] for part in transcript])
-                    return full_transcript, 'en'  # Default to English
-                    
-                except Exception as e3:
-                    st.warning(f"Fallback transcript access failed: {str(e3)}")
-                    
-                    # Final attempt: Use audio transcription
-                    st.warning("Attempting audio transcription as last resort...")
-                    audio_file = download_audio(youtube_url)
-                    if audio_file:
-                        full_transcript = transcribe_audio(audio_file)
+                audio_file = download_audio(full_url)
+                if audio_file and os.path.exists(audio_file):
+                    st.success(f"Audio downloaded successfully: {audio_file}")
+                    full_transcript = transcribe_audio(audio_file)
+                    if full_transcript:
+                        st.success("Audio transcription successful!")
                         return full_transcript, 'en'
                     else:
-                        raise Exception("All transcript retrieval methods failed")
+                        raise Exception("Transcription failed")
+                else:
+                    raise Exception("Audio download failed")
+                    
+            except Exception as e3:
+                st.error(f"Audio processing failed: {str(e3)}")
+                raise Exception(f"Could not process video: {str(e3)}")
         
     except Exception as e:
         st.error(f"Could not get transcript: {str(e)}")
