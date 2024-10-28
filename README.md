@@ -1,24 +1,24 @@
-# YouTube Video Summarizer
+# Advanced YouTube Video Summarizer
 
-This is a Python application that allows you to summarize the content of a YouTube video using OpenAI's GPT-3.5 language model and Langchain. The application get the transcription provided by YouTube, chunks the Transcription with Langchain and generates a summary in the language of the youtube video.
+This is a Python application that creates comprehensive summaries of YouTube videos using Groq's AI models. The application can either use YouTube's transcription or create its own using Groq's Whisper Large V3 Turbo when no transcript is available.
 
 ## Features
-- Get the Transcription from Youtube
-- Chunks the transcriptions with Langchain
-- Summarizes transcribed text using OpenAI's GPT-3.5 model
-- Built with Streamlit for an easy-to-use web interface
+- Automatic transcript extraction from YouTube videos
+- Fallback to audio transcription using Groq's Whisper Large V3 Turbo
+- Advanced text chunking with Langchain
+- Comprehensive summarization using Llama 3.1 8B Instant
+- Multi-language support with 12+ languages
+- Language selection for summaries
+- Structured summaries with clear sections
+- Clean and intuitive Streamlit web interface
+- Progress tracking and status updates
 
 ## Prerequisites
 
-Before you begin, ensure you have installed the following:
+Before you begin, ensure you have installed:
 
 - Python 3.6 or above
-- [Streamlit](https://streamlit.io/)
-- [PyTube](https://pytube.io/en/latest/)
-- [OpenAI](https://beta.openai.com/docs/developer-quickstart/)
-- [python-dotenv](https://pypi.org/project/python-dotenv/)
-- [youtube-transcript-api](https://pypi.org/project/youtube-transcript-api/)
-- [Langchain](https://pypi.org/project/langchain/)
+- FFmpeg (required for audio processing)
 
 ## Installation 
 
@@ -26,51 +26,110 @@ Before you begin, ensure you have installed the following:
 ```bash
 git clone https://github.com/DevRico003/youtube_summarizer
 ```
-2. Change into the cloned repository:
+
+2. Change into the project directory:
 ```bash
 cd youtube_summarizer
 ```
-3. Install all necessary packages:
+
+3. Install required packages:
 ```bash
 pip install -r requirements.txt
 ```
-4. Create a `.env` directory in your home directory (or any directory of your choice), and create in the directory `.env` a file called `openai_api` and add your OpenAI API Key:
+
+4. Install FFmpeg (Ubuntu/Debian):
 ```bash
-OPENAI_API_KEY=your_openai_api_key
+sudo apt-get update
+sudo apt-get install ffmpeg
 ```
-5. Change the `env_path` variable in the Python script to match the path of your `.env` file.
+For other operating systems, please refer to the [FFmpeg installation guide](https://ffmpeg.org/download.html)
+
+5. Create a `.env` file in your project directory and add your Groq API Key:
+```bash
+GROQ_API_KEY=your_groq_api_key
+```
+
+6. Update the `env_path` variable in `app.py` to match your `.env` file location.
 
 ## Usage
 
-1. Run the script:
+1. Start the application:
 ```bash
 streamlit run app.py
 ```
-2. Once the web application starts, open it in your web browser.
 
-3. Enter the link of the YouTube video you want to summarize in the provided text input.
+2. Open your web browser to the provided URL (typically http://localhost:8501)
 
-4. Click the "Start" button to begin the summarization process.
+3. Enter a YouTube video URL in the input field
 
-   - The application will get the Transcription from Youtube
-   - It will then use GPT-3.5 and Langchain to generate a summary.
-   - The generated summary will be displayed on the web page in the language of the youtube video.
+4. Select your desired summary language from the dropdown menu
 
-5. The summary will be presented in the form of an informative and factual overview of the video's content, including bullet points if possible. It will also include an introduction and conclusion phrase.
+5. Click "Generate Summary"
 
-## Example
-### Insert Youtube link, choose the language and press start
-![Example english](1.png)
-### Result
-![Example english](2.png)
-## Disclaimer
+The application will:
+- Attempt to fetch the YouTube transcript
+- If no transcript is available, download and transcribe the audio using Groq's Whisper
+- Process and chunk the text appropriately
+- Generate a comprehensive summary with the following sections:
+  - 🎯 Title
+  - 📝 Overview
+  - 🔑 Key Points
+  - 💡 Main Takeaways
+  - 🔄 Context & Implications
 
-Please note that this application relies on the OpenAI GPT-3.5 language model, and its performance and results are subject to the capabilities of the model and the quality of the provided data. The generated summaries may not always be perfect and may require manual editing for accuracy.
+## Summary Structure
+
+Each summary includes:
+- A descriptive title
+- A brief overview (2-3 sentences)
+- Key points with examples and data
+- Practical insights and actionable conclusions
+- Context and broader implications
+
+## Error Handling
+
+The application includes robust error handling for:
+- Invalid YouTube URLs
+- Missing transcripts
+- Failed audio downloads
+- API errors
+- Network issues
+
+## Technical Details
+
+- Uses Groq's API with OpenAI compatibility layer
+- Implements efficient text chunking with Langchain
+- Uses Llama 3.1 8B Instant model for summarization
+- Employs yt-dlp for reliable video processing
+- Includes automatic cleanup of temporary files
+- Features progress tracking and user feedback
+
+## Language Support
+
+The application supports summaries in multiple languages:
+- English
+- German (Deutsch)
+- Spanish (Español)
+- French (Français)
+- Italian (Italiano)
+- Dutch (Nederlands)
+- Polish (Polski)
+- Portuguese (Português)
+- Japanese (日本語)
+- Chinese (中文)
+- Korean (한국어)
+- Russian (Русский)
+
+Simply select your preferred language from the dropdown menu, and the summary will be generated in that language, regardless of the original video language.
 
 ## Contributing
 
-Contributions are what make the open-source community such an amazing place to learn, inspire, and create. Any contributions you make are greatly appreciated.
+Contributions are welcome! Please feel free to submit a Pull Request.
 
 ## License
 
 Distributed under the MIT License. See `LICENSE` for more information.
+
+## Disclaimer
+
+This application uses Groq's API services. Usage will incur costs based on your Groq account. Please review Groq's pricing structure before extensive use.
