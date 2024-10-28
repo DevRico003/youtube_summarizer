@@ -66,6 +66,14 @@ streamlit run app.py
 
 5. Click "Generate Summary"
 
+## Example Usage
+
+### 1. Enter YouTube URL and Select Language
+![Input Interface](1.png)
+
+### 2. View Generated Summary
+![Summary Result](2.png)
+
 The application will:
 - Attempt to fetch the YouTube transcript
 - If no transcript is available, download and transcribe the audio using Groq's Whisper
