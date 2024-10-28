@@ -13,6 +13,7 @@ from selenium import webdriver
 from selenium.webdriver.common.by import By
 from selenium.webdriver.support.ui import WebDriverWait
 from selenium.webdriver.support import expected_conditions as EC
+import yt_dlp
 
 def load_environment():
     """Load environment variables"""
@@ -260,7 +261,7 @@ def summarize_with_langchain_and_openai(transcript, language_code, model_name='l
         return None
 
 def download_audio(youtube_url):
-    """Download audio using youtube-dl"""
+    """Download audio using yt-dlp"""
     try:
         st.info("Downloading audio...")
         video_id = extract_video_id(youtube_url)
@@ -271,30 +272,29 @@ def download_audio(youtube_url):
         
         output_file = os.path.join(temp_dir, f"{video_id}.mp3")
         
-        # youtube-dl command
-        command = [
-            'youtube-dl',
-            '-x',  # Extract audio
-            '--audio-format', 'mp3',  # Convert to MP3
-            '--audio-quality', '192K',  # Set quality
-            '-o', output_file,  # Output file
-            '--no-check-certificate',  # Skip HTTPS verification
-            '--no-cache-dir',  # Don't use cache
-            '--prefer-ffmpeg',  # Use FFmpeg for conversion
-            youtube_url
-        ]
+        ydl_opts = {
+            'format': 'bestaudio/best',
+            'postprocessors': [{
+                'key': 'FFmpegExtractAudio',
+                'preferredcodec': 'mp3',
+                'preferredquality': '192',
+            }],
+            'outtmpl': output_file,
+            'quiet': True,
+            'no_warnings': True,
+            'extract_flat': False,
+            'force_generic_extractor': False,
+            'geo_bypass': True,
+            'http_headers': {
+                'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
+                'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8',
+                'Accept-Language': 'en-us,en;q=0.5',
+                'Sec-Fetch-Mode': 'navigate'
+            }
+        }
         
-        # Execute youtube-dl command
-        process = subprocess.run(
-            command,
-            stdout=subprocess.PIPE,
-            stderr=subprocess.PIPE,
-            text=True
-        )
-        
-        if process.returncode != 0:
-            st.error(f"youtube-dl error: {process.stderr}")
-            return None
+        with yt_dlp.YoutubeDL(ydl_opts) as ydl:
+            ydl.download([youtube_url])
             
         if os.path.exists(output_file):
             st.success("Audio downloaded successfully!")
