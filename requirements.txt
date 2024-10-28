@@ -6,4 +6,3 @@ langchain
 python-dotenv
 yt-dlp
 requests>=2.31.0
-groq  # Optional, da wir OpenAI's Client mit Groq's base_url verwenden
