@@ -34,12 +34,40 @@ def download_audio(youtube_url):
             'preferredquality': '192',
         }],
         'outtmpl': '%(id)s.%(ext)s',
+        # Add these options to bypass age restriction and bot check
+        'nocheckcertificate': True,
+        'ignoreerrors': False,
+        'no_warnings': True,
+        'quiet': True,
+        'extract_flat': False,
+        'force_generic_extractor': False,
+        # Add cookies file if available
+        'cookiefile': 'cookies.txt',  # Optional: You can create this file with browser cookies
+        # Add these options to handle bot protection
+        'http_headers': {
+            'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36',
+            'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8',
+            'Accept-Language': 'en-us,en;q=0.5',
+            'Sec-Fetch-Mode': 'navigate',
+        }
     }
     
-    with yt_dlp.YoutubeDL(ydl_opts) as ydl:
-        info = ydl.extract_info(youtube_url, download=True)
-        audio_file = f"{info['id']}.mp3"
-    return audio_file
+    try:
+        with yt_dlp.YoutubeDL(ydl_opts) as ydl:
+            info = ydl.extract_info(youtube_url, download=True)
+            audio_file = f"{info['id']}.mp3"
+        return audio_file
+    except Exception as e:
+        st.error(f"Error downloading audio: {str(e)}")
+        # Fallback to alternative download method if needed
+        try:
+            ydl_opts['format'] = 'worstaudio/worst'  # Try with lower quality as fallback
+            with yt_dlp.YoutubeDL(ydl_opts) as ydl:
+                info = ydl.extract_info(youtube_url, download=True)
+                audio_file = f"{info['id']}.mp3"
+            return audio_file
+        except Exception as e:
+            raise Exception(f"Could not download audio even with fallback method: {str(e)}")
 
 def transcribe_audio(audio_file):
     """
