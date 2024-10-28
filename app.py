@@ -61,13 +61,12 @@ def get_transcript(youtube_url):
     """Get transcript using YouTube Transcript API with cookies"""
     try:
         video_id = extract_video_id(youtube_url)
-        st.info(f"Getting transcript for video: {video_id}")
         
         # Get cookies file path
         cookies_file = os.path.join(os.path.dirname(__file__), 'cookies.txt')
         
         if not os.path.exists(cookies_file):
-            st.error("cookies.txt not found in application directory")
+            st.error("Could not access YouTube authentication. Please contact support.")
             return None, None
             
         try:
@@ -90,10 +89,8 @@ def get_transcript(youtube_url):
             
             try:
                 transcript = transcript_list.find_manually_created_transcript()
-                st.success("Found manual transcript!")
             except:
                 transcript = next(iter(transcript_list))
-                st.success("Found auto-generated transcript!")
             
             full_transcript = " ".join([part['text'] for part in transcript.fetch()])
             language_code = transcript.language_code
@@ -101,11 +98,11 @@ def get_transcript(youtube_url):
             return full_transcript, language_code
                 
         except Exception as e:
-            st.error(f"Could not get transcript: {str(e)}")
+            st.error("Could not get video transcript. Please try another video.")
             return None, None
             
     except Exception as e:
-        st.error(f"Error processing video: {str(e)}")
+        st.error("Invalid YouTube URL. Please check the link and try again.")
         return None, None
 
 def get_transcript_with_selenium(youtube_url):
