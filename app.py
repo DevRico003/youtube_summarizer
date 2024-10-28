@@ -260,7 +260,7 @@ def summarize_with_langchain_and_openai(transcript, language_code, model_name='l
         return None
 
 def download_audio(youtube_url):
-    """Download audio using pytube with enhanced error handling"""
+    """Download audio using youtube-dl"""
     try:
         st.info("Downloading audio...")
         video_id = extract_video_id(youtube_url)
@@ -269,76 +269,38 @@ def download_audio(youtube_url):
         temp_dir = os.getenv('TMPDIR', '/tmp/youtube_audio')
         os.makedirs(temp_dir, exist_ok=True)
         
-        try:
-            # Initialize YouTube object with additional parameters
-            yt = YouTube(
-                youtube_url,
-                use_oauth=False,
-                allow_oauth_cache=False,
-                on_progress_callback=None,
-                on_complete_callback=None,
-                proxies=None
-            )
-            
-            st.info(f"Found video: {yt.title}")
-            
-            # Get all available audio streams
-            audio_streams = yt.streams.filter(only_audio=True).order_by('abr').desc()
-            
-            if not audio_streams:
-                raise Exception("No audio streams available")
-            
-            # Try different audio streams until one works
-            for stream in audio_streams:
-                try:
-                    st.info(f"Trying audio stream: {stream.abr}kbps")
-                    
-                    # Download audio
-                    temp_file = os.path.join(temp_dir, f"{video_id}_temp.{stream.subtype}")
-                    stream.download(output_path=temp_dir, filename=f"{video_id}_temp.{stream.subtype}")
-                    
-                    if os.path.exists(temp_file):
-                        # Convert to MP3
-                        output_file = os.path.join(temp_dir, f"{video_id}.mp3")
-                        
-                        # Use subprocess for better error handling with FFmpeg
-                        command = [
-                            'ffmpeg',
-                            '-i', temp_file,
-                            '-vn',
-                            '-acodec', 'libmp3lame',
-                            '-ab', '128k',
-                            '-ar', '44100',
-                            '-y',
-                            output_file
-                        ]
-                        
-                        process = subprocess.run(
-                            command,
-                            stdout=subprocess.PIPE,
-                            stderr=subprocess.PIPE
-                        )
-                        
-                        if process.returncode != 0:
-                            st.warning(f"FFmpeg conversion failed: {process.stderr.decode()}")
-                            continue
-                        
-                        # Clean up temp file
-                        os.remove(temp_file)
-                        
-                        if os.path.exists(output_file):
-                            st.success("Audio downloaded and converted successfully!")
-                            return output_file
-                            
-                except Exception as stream_error:
-                    st.warning(f"Stream download failed: {str(stream_error)}")
-                    continue
-            
-            raise Exception("All audio stream attempts failed")
-            
-        except Exception as yt_error:
-            st.error(f"YouTube download error: {str(yt_error)}")
+        output_file = os.path.join(temp_dir, f"{video_id}.mp3")
+        
+        # youtube-dl command
+        command = [
+            'youtube-dl',
+            '-x',  # Extract audio
+            '--audio-format', 'mp3',  # Convert to MP3
+            '--audio-quality', '192K',  # Set quality
+            '-o', output_file,  # Output file
+            '--no-check-certificate',  # Skip HTTPS verification
+            '--no-cache-dir',  # Don't use cache
+            '--prefer-ffmpeg',  # Use FFmpeg for conversion
+            youtube_url
+        ]
+        
+        # Execute youtube-dl command
+        process = subprocess.run(
+            command,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+            text=True
+        )
+        
+        if process.returncode != 0:
+            st.error(f"youtube-dl error: {process.stderr}")
             return None
+            
+        if os.path.exists(output_file):
+            st.success("Audio downloaded successfully!")
+            return output_file
+        else:
+            raise Exception("Download completed but file not found")
             
     except Exception as e:
         st.error(f"Error downloading audio: {str(e)}")
