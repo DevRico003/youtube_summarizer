@@ -65,45 +65,37 @@ def extract_video_id(youtube_url):
     raise ValueError("Could not extract video ID from URL")
 
 def get_transcript(youtube_url):
-    """Get transcript using YouTube Data API"""
+    """Get transcript using YouTube Transcript API with Selenium fallback"""
     try:
         video_id = extract_video_id(youtube_url)
-        youtube = build('youtube', 'v3', developerKey=os.getenv('YOUTUBE_API_KEY'))
+        st.info(f"Getting transcript for video: {video_id}")
         
-        # Get video details including captions
-        video_response = youtube.videos().list(
-            part='snippet,contentDetails',
-            id=video_id
-        ).execute()
-        
-        if not video_response['items']:
-            raise ValueError("Video not found")
+        try:
+            # First try with YouTube Transcript API
+            from youtube_transcript_api import YouTubeTranscriptApi
             
-        # Get captions
-        captions_response = youtube.captions().list(
-            part='snippet',
-            videoId=video_id
-        ).execute()
-        
-        if not captions_response.get('items'):
-            st.warning("No captions available for this video")
-            return None, None
+            transcript_list = YouTubeTranscriptApi.list_transcripts(video_id)
+            try:
+                transcript = transcript_list.find_manually_created_transcript()
+                st.success("Found manual transcript!")
+            except:
+                transcript = next(iter(transcript_list))
+                st.success("Found auto-generated transcript!")
             
-        # Get the first available caption track
-        caption = captions_response['items'][0]
-        caption_id = caption['id']
-        language_code = caption['snippet']['language']
-        
-        # Download the caption track
-        subtitle = youtube.captions().download(
-            id=caption_id,
-            tfmt='srt'
-        ).execute()
-        
-        return subtitle, language_code
+            full_transcript = " ".join([part['text'] for part in transcript.fetch()])
+            language_code = transcript.language_code
+            
+            return full_transcript, language_code
+            
+        except Exception as e:
+            st.warning(f"YouTube Transcript API failed: {str(e)}")
+            st.info("Trying Selenium fallback method...")
+            
+            # Fallback to Selenium method
+            return get_transcript_with_selenium(youtube_url)
         
     except Exception as e:
-        st.error(f"Error getting transcript: {str(e)}")
+        st.error(f"Error processing video: {str(e)}")
         return None, None
 
 def get_transcript_with_selenium(youtube_url):
