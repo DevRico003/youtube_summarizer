@@ -7,6 +7,12 @@ from dotenv import load_dotenv
 import re
 from pytube import YouTube
 from moviepy.editor import *
+import subprocess
+import webbrowser
+from selenium import webdriver
+from selenium.webdriver.common.by import By
+from selenium.webdriver.support.ui import WebDriverWait
+from selenium.webdriver.support import expected_conditions as EC
 
 def load_environment():
     """Load environment variables"""
@@ -84,7 +90,7 @@ def get_transcript(youtube_url):
                         # Transcribe with Groq's Whisper
                         with open(audio_file, "rb") as audio:
                             transcript = groq_client.audio.transcriptions.create(
-                                model="whisper-large-v3",
+                                model="whisper-large-v3-turbo",
                                 file=audio,
                                 response_format="text"
                             )
@@ -254,7 +260,7 @@ def summarize_with_langchain_and_openai(transcript, language_code, model_name='l
         return None
 
 def download_audio(youtube_url):
-    """Download audio using pytube"""
+    """Download audio using pytube with enhanced error handling"""
     try:
         st.info("Downloading audio...")
         video_id = extract_video_id(youtube_url)
@@ -263,34 +269,76 @@ def download_audio(youtube_url):
         temp_dir = os.getenv('TMPDIR', '/tmp/youtube_audio')
         os.makedirs(temp_dir, exist_ok=True)
         
-        # Initialize YouTube object
-        yt = YouTube(youtube_url)
-        
-        # Get only audio stream
-        audio_stream = yt.streams.filter(only_audio=True, file_extension='mp4').first()
-        
-        if not audio_stream:
-            raise Exception("No audio stream found")
-        
-        # Download audio
-        output_file = os.path.join(temp_dir, f"{video_id}.mp3")
-        downloaded_file = audio_stream.download(
-            output_path=temp_dir,
-            filename=f"{video_id}_temp.mp4"
-        )
-        
-        # Convert to MP3 using FFmpeg
-        os.system(f'ffmpeg -i "{downloaded_file}" -vn -acodec libmp3lame -ab 128k -ar 44100 "{output_file}" -y')
-        
-        # Clean up temporary file
-        if os.path.exists(downloaded_file):
-            os.remove(downloaded_file)
-        
-        if os.path.exists(output_file):
-            st.success("Audio downloaded successfully!")
-            return output_file
-        else:
-            raise Exception("Audio conversion failed")
+        try:
+            # Initialize YouTube object with additional parameters
+            yt = YouTube(
+                youtube_url,
+                use_oauth=False,
+                allow_oauth_cache=False,
+                on_progress_callback=None,
+                on_complete_callback=None,
+                proxies=None
+            )
+            
+            st.info(f"Found video: {yt.title}")
+            
+            # Get all available audio streams
+            audio_streams = yt.streams.filter(only_audio=True).order_by('abr').desc()
+            
+            if not audio_streams:
+                raise Exception("No audio streams available")
+            
+            # Try different audio streams until one works
+            for stream in audio_streams:
+                try:
+                    st.info(f"Trying audio stream: {stream.abr}kbps")
+                    
+                    # Download audio
+                    temp_file = os.path.join(temp_dir, f"{video_id}_temp.{stream.subtype}")
+                    stream.download(output_path=temp_dir, filename=f"{video_id}_temp.{stream.subtype}")
+                    
+                    if os.path.exists(temp_file):
+                        # Convert to MP3
+                        output_file = os.path.join(temp_dir, f"{video_id}.mp3")
+                        
+                        # Use subprocess for better error handling with FFmpeg
+                        command = [
+                            'ffmpeg',
+                            '-i', temp_file,
+                            '-vn',
+                            '-acodec', 'libmp3lame',
+                            '-ab', '128k',
+                            '-ar', '44100',
+                            '-y',
+                            output_file
+                        ]
+                        
+                        process = subprocess.run(
+                            command,
+                            stdout=subprocess.PIPE,
+                            stderr=subprocess.PIPE
+                        )
+                        
+                        if process.returncode != 0:
+                            st.warning(f"FFmpeg conversion failed: {process.stderr.decode()}")
+                            continue
+                        
+                        # Clean up temp file
+                        os.remove(temp_file)
+                        
+                        if os.path.exists(output_file):
+                            st.success("Audio downloaded and converted successfully!")
+                            return output_file
+                            
+                except Exception as stream_error:
+                    st.warning(f"Stream download failed: {str(stream_error)}")
+                    continue
+            
+            raise Exception("All audio stream attempts failed")
+            
+        except Exception as yt_error:
+            st.error(f"YouTube download error: {str(yt_error)}")
+            return None
             
     except Exception as e:
         st.error(f"Error downloading audio: {str(e)}")
