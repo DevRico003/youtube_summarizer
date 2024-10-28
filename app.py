@@ -9,6 +9,7 @@ from selenium import webdriver
 from selenium.webdriver.common.by import By
 from selenium.webdriver.support.ui import WebDriverWait
 from selenium.webdriver.support import expected_conditions as EC
+import yt_dlp
 
 def load_environment():
     """Load environment variables"""
@@ -65,7 +66,7 @@ def extract_video_id(youtube_url):
     raise ValueError("Could not extract video ID from URL")
 
 def get_transcript(youtube_url):
-    """Get transcript using YouTube Transcript API with Selenium fallback"""
+    """Get transcript using YouTube Transcript API with Whisper fallback"""
     try:
         video_id = extract_video_id(youtube_url)
         st.info(f"Getting transcript for video: {video_id}")
@@ -86,14 +87,64 @@ def get_transcript(youtube_url):
             language_code = transcript.language_code
             
             return full_transcript, language_code
-            
+                
         except Exception as e:
-            st.warning(f"YouTube Transcript API failed: {str(e)}")
-            st.info("Trying Selenium fallback method...")
+            st.warning(f"YouTube transcript not available: {str(e)}")
+            st.info("Attempting to transcribe audio with Whisper...")
             
-            # Fallback to Selenium method
-            return get_transcript_with_selenium(youtube_url)
-        
+            # Download audio using yt-dlp
+            ydl_opts = {
+                'format': 'bestaudio/best',
+                'postprocessors': [{
+                    'key': 'FFmpegExtractAudio',
+                    'preferredcodec': 'mp3',
+                    'preferredquality': '192',
+                }],
+                'outtmpl': '%(id)s.%(ext)s',
+                'quiet': True,
+                'no_warnings': True,
+                'extract_flat': False,
+                'force_generic_extractor': False,
+                'geo_bypass': True,
+                'http_headers': {
+                    'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
+                }
+            }
+            
+            try:
+                with yt_dlp.YoutubeDL(ydl_opts) as ydl:
+                    info = ydl.extract_info(youtube_url, download=True)
+                    audio_file = f"{info['id']}.mp3"
+                    
+                    if os.path.exists(audio_file):
+                        st.success("Audio downloaded successfully!")
+                        
+                        # Transcribe with Groq's Whisper
+                        try:
+                            with open(audio_file, "rb") as audio:
+                                transcript = groq_client.audio.transcriptions.create(
+                                    model="whisper-large-v3",
+                                    file=audio,
+                                    response_format="text"
+                                )
+                            st.success("Audio transcribed successfully!")
+                            return transcript, 'en'  # Whisper defaults to English
+                            
+                        except Exception as e:
+                            st.error(f"Transcription failed: {str(e)}")
+                            return None, None
+                        finally:
+                            # Cleanup
+                            if os.path.exists(audio_file):
+                                os.remove(audio_file)
+                    else:
+                        st.error("Audio download failed")
+                        return None, None
+                        
+            except Exception as e:
+                st.error(f"Audio download failed: {str(e)}")
+                return None, None
+            
     except Exception as e:
         st.error(f"Error processing video: {str(e)}")
         return None, None

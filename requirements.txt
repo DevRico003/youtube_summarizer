@@ -3,8 +3,7 @@ openai>=1.0.0
 youtube_transcript_api
 langchain
 python-dotenv
-selenium
-webdriver_manager
+yt-dlp
 
 
 
