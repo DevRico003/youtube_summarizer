@@ -11,17 +11,25 @@ import re  # Add this at the top with other imports
 # More flexible environment variable loading
 def load_environment():
     """Load environment variables from .env file or system environment"""
-    # Try to load from .env file if it exists (local development)
     env_path = os.path.join(os.path.dirname(__file__), '.env')
     if os.path.exists(env_path):
         load_dotenv(env_path)
     
-    # Get API key from environment (works with both .env and system environment)
-    api_key = os.getenv('GROQ_API_KEY')
-    if not api_key:
-        raise ValueError("GROQ_API_KEY not found in environment variables")
+    required_vars = {
+        'GROQ_API_KEY': "GROQ_API_KEY not found in environment variables",
+        'YOUTUBE_EMAIL': "YOUTUBE_EMAIL not found in environment variables",
+        'YOUTUBE_PASSWORD': "YOUTUBE_PASSWORD not found in environment variables"
+    }
     
-    return api_key
+    missing_vars = []
+    for var, message in required_vars.items():
+        if not os.getenv(var):
+            missing_vars.append(message)
+    
+    if missing_vars:
+        raise ValueError("\n".join(missing_vars))
+    
+    return os.getenv('GROQ_API_KEY')
 
 # Initialize clients with environment variables
 try:
@@ -43,7 +51,7 @@ except Exception as e:
     st.stop()
 
 def download_audio(youtube_url):
-    """Download audio from YouTube video without browser cookies"""
+    """Download audio from YouTube video with authentication"""
     ydl_opts = {
         'format': 'bestaudio/best',
         'postprocessors': [{
@@ -54,36 +62,35 @@ def download_audio(youtube_url):
         'outtmpl': '%(id)s.%(ext)s',
         'quiet': True,
         'no_warnings': True,
+        # YouTube authentication
+        'username': os.getenv('YOUTUBE_EMAIL'),
+        'password': os.getenv('YOUTUBE_PASSWORD'),
+        'cookiefile': 'youtube.cookies',
+        # Additional options
         'nocheckcertificate': True,
         'ignoreerrors': False,
         'no_color': True,
-        # Enhanced options for bot protection bypass
         'http_headers': {
             'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
             'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,image/webp,*/*;q=0.8',
             'Accept-Language': 'en-US,en;q=0.5',
             'Accept-Encoding': 'gzip, deflate, br',
-            'DNT': '1',
-            'Connection': 'keep-alive',
-            'Upgrade-Insecure-Requests': '1',
-            'Sec-Fetch-Dest': 'document',
-            'Sec-Fetch-Mode': 'navigate',
-            'Sec-Fetch-Site': 'none',
-            'Sec-Fetch-User': '?1',
-            'TE': 'trailers'
-        },
-        # Additional options to bypass restrictions
-        'extractor_retries': 3,
-        'file_access_retries': 3,
-        'fragment_retries': 3,
-        'skip_download_archive': True,
-        'rm_cachedir': True
+        }
     }
     
     try:
         with yt_dlp.YoutubeDL(ydl_opts) as ydl:
+            # Try to login first
+            try:
+                ydl.cache.remove()
+                ydl.download([youtube_url])
+            except Exception as e:
+                st.error(f"Login error: {str(e)}")
+                return None
+                
             info = ydl.extract_info(youtube_url, download=True)
             audio_file = f"{info['id']}.mp3"
+            
         return audio_file
     except Exception as e:
         st.error(f"Error downloading audio: {str(e)}")
@@ -93,9 +100,7 @@ def download_audio(youtube_url):
             fallback_opts.update({
                 'format': 'worstaudio/worst',
                 'extract_flat': True,
-                'force_generic_extractor': True,
-                'youtube_include_dash_manifest': False,
-                'youtube_include_hls_manifest': False
+                'force_generic_extractor': True
             })
             with yt_dlp.YoutubeDL(fallback_opts) as ydl:
                 info = ydl.extract_info(youtube_url, download=True)
