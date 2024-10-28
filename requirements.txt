@@ -1,5 +1,9 @@
 streamlit
 openai>=1.0.0
-youtube-transcript-api
+google-api-python-client
 langchain
 python-dotenv
+selenium
+webdriver_manager
+
+

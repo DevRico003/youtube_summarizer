@@ -1,26 +1,42 @@
 import os
 from openai import OpenAI
 import streamlit as st
-from youtube_transcript_api import YouTubeTranscriptApi
+from googleapiclient.discovery import build
 from langchain.text_splitter import RecursiveCharacterTextSplitter
 from dotenv import load_dotenv
 import re
+from selenium import webdriver
+from selenium.webdriver.common.by import By
+from selenium.webdriver.support.ui import WebDriverWait
+from selenium.webdriver.support import expected_conditions as EC
 
 def load_environment():
-    """Load environment variables from .env file or system environment"""
+    """Load environment variables"""
     env_path = os.path.join(os.path.dirname(__file__), '.env')
     if os.path.exists(env_path):
         load_dotenv(env_path)
     
-    api_key = os.getenv('GROQ_API_KEY')
-    if not api_key:
-        raise ValueError("GROQ_API_KEY not found in environment variables")
+    required_vars = {
+        'GROQ_API_KEY': "GROQ_API_KEY not found",
+        'YOUTUBE_API_KEY': "YOUTUBE_API_KEY not found"
+    }
     
-    return api_key
+    missing_vars = []
+    env_vars = {}
+    for var, message in required_vars.items():
+        value = os.getenv(var)
+        if not value:
+            missing_vars.append(message)
+        env_vars[var] = value
+    
+    if missing_vars:
+        raise ValueError("\n".join(missing_vars))
+    
+    return env_vars
 
 # Initialize Groq client
 try:
-    api_key = load_environment()
+    api_key = load_environment()['GROQ_API_KEY']
     groq_client = OpenAI(
         api_key=api_key,
         base_url="https://api.groq.com/openai/v1"
@@ -49,37 +65,94 @@ def extract_video_id(youtube_url):
     raise ValueError("Could not extract video ID from URL")
 
 def get_transcript(youtube_url):
-    """Get transcript from YouTube"""
+    """Get transcript using YouTube Data API"""
     try:
         video_id = extract_video_id(youtube_url)
-        st.info(f"Getting transcript for video: {video_id}")
+        youtube = build('youtube', 'v3', developerKey=os.getenv('YOUTUBE_API_KEY'))
         
-        try:
-            # Try to get available transcripts
-            transcript_list = YouTubeTranscriptApi.list_transcripts(video_id)
+        # Get video details including captions
+        video_response = youtube.videos().list(
+            part='snippet,contentDetails',
+            id=video_id
+        ).execute()
+        
+        if not video_response['items']:
+            raise ValueError("Video not found")
             
-            # First try to get manual transcript
-            try:
-                transcript = transcript_list.find_manually_created_transcript()
-                st.success("Found manual transcript!")
-            except:
-                # If no manual transcript, get auto-generated one
-                transcript = next(iter(transcript_list))
-                st.success("Found auto-generated transcript!")
-            
-            # Get the transcript text
-            full_transcript = " ".join([part['text'] for part in transcript.fetch()])
-            language_code = transcript.language_code
-            
-            return full_transcript, language_code
-            
-        except Exception as e:
-            st.error(f"Could not get transcript: {str(e)}")
+        # Get captions
+        captions_response = youtube.captions().list(
+            part='snippet',
+            videoId=video_id
+        ).execute()
+        
+        if not captions_response.get('items'):
+            st.warning("No captions available for this video")
             return None, None
+            
+        # Get the first available caption track
+        caption = captions_response['items'][0]
+        caption_id = caption['id']
+        language_code = caption['snippet']['language']
+        
+        # Download the caption track
+        subtitle = youtube.captions().download(
+            id=caption_id,
+            tfmt='srt'
+        ).execute()
+        
+        return subtitle, language_code
         
     except Exception as e:
-        st.error(f"Error processing video: {str(e)}")
+        st.error(f"Error getting transcript: {str(e)}")
         return None, None
+
+def get_transcript_with_selenium(youtube_url):
+    """Get transcript using Selenium with authentication"""
+    try:
+        options = webdriver.ChromeOptions()
+        options.add_argument('--headless')
+        options.add_argument('--no-sandbox')
+        options.add_argument('--disable-dev-shm-usage')
+        
+        driver = webdriver.Chrome(options=options)
+        
+        # Login to Google first
+        driver.get('https://accounts.google.com')
+        
+        # Login with credentials from env
+        email = driver.find_element(By.NAME, "identifier")
+        email.send_keys(os.getenv('GOOGLE_EMAIL'))
+        email.submit()
+        
+        password = WebDriverWait(driver, 10).until(
+            EC.presence_of_element_located((By.NAME, "password"))
+        )
+        password.send_keys(os.getenv('GOOGLE_PASSWORD'))
+        password.submit()
+        
+        # Now get the video
+        driver.get(youtube_url)
+        
+        # Wait for and click the transcript button
+        transcript_button = WebDriverWait(driver, 10).until(
+            EC.presence_of_element_located((By.CSS_SELECTOR, "button[aria-label='Show transcript']"))
+        )
+        transcript_button.click()
+        
+        # Get transcript text
+        transcript_elements = driver.find_elements(By.CSS_SELECTOR, "div.segment-text")
+        transcript = " ".join([elem.text for elem in transcript_elements])
+        
+        # Get language
+        language_code = 'en'  # Default to English
+        
+        return transcript, language_code
+        
+    except Exception as e:
+        st.error(f"Error getting transcript with Selenium: {str(e)}")
+        return None, None
+    finally:
+        driver.quit()
 
 def get_available_languages():
     """Return a dictionary of available languages"""
