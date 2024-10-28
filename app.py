@@ -15,6 +15,10 @@ import pafy
 import youtube_dl
 from moviepy.editor import *
 import requests
+from youtube_transcript_api import YouTubeTranscriptApi
+from transformers import pipeline
+import nltk
+nltk.download('punkt')
 
 def load_environment():
     """Load environment variables"""
@@ -71,15 +75,13 @@ def extract_video_id(youtube_url):
     raise ValueError("Could not extract video ID from URL")
 
 def get_transcript(youtube_url):
-    """Get transcript using YouTube Transcript API with Whisper fallback"""
+    """Get transcript using YouTube Transcript API with Transformers fallback"""
     try:
         video_id = extract_video_id(youtube_url)
         st.info(f"Getting transcript for video: {video_id}")
         
         try:
             # First try with YouTube Transcript API
-            from youtube_transcript_api import YouTubeTranscriptApi
-            
             transcript_list = YouTubeTranscriptApi.list_transcripts(video_id)
             try:
                 transcript = transcript_list.find_manually_created_transcript()
@@ -95,60 +97,44 @@ def get_transcript(youtube_url):
                 
         except Exception as e:
             st.warning(f"YouTube transcript not available: {str(e)}")
-            st.info("Attempting to transcribe audio with Whisper...")
+            st.info("Attempting to transcribe with Transformers...")
             
             try:
-                # Download audio using pytube
-                st.info("Downloading audio...")
+                # Use Transformers pipeline for transcription
+                transcriber = pipeline(
+                    "automatic-speech-recognition",
+                    model="openai/whisper-large-v3",
+                    device="cpu"
+                )
+                
+                # Get video URL
                 yt = YouTube(youtube_url)
                 
-                # Get the audio stream
-                audio_stream = yt.streams.filter(only_audio=True, file_extension='mp4').first()
+                # Get audio stream
+                audio_stream = yt.streams.filter(only_audio=True).first()
                 
                 if not audio_stream:
                     raise Exception("No audio stream found")
                 
-                # Download to temporary file
-                temp_file = audio_stream.download(
+                # Download audio
+                audio_file = audio_stream.download(
                     output_path=os.getenv('TMPDIR', '/tmp'),
                     filename=f"{video_id}_temp.mp4"
                 )
                 
-                # Convert to MP3 using FFmpeg
-                output_file = os.path.join(os.getenv('TMPDIR', '/tmp'), f"{video_id}.mp3")
-                os.system(f'ffmpeg -i "{temp_file}" -vn -acodec libmp3lame -ab 192k -ar 44100 "{output_file}" -y')
+                # Transcribe with Transformers
+                result = transcriber(audio_file)
+                transcript = result["text"]
                 
-                # Clean up temp file
-                if os.path.exists(temp_file):
-                    os.remove(temp_file)
+                # Cleanup
+                if os.path.exists(audio_file):
+                    os.remove(audio_file)
                 
-                if os.path.exists(output_file):
-                    st.success("Audio downloaded successfully!")
-                    
-                    # Transcribe with Groq's Whisper
-                    try:
-                        with open(output_file, "rb") as audio:
-                            transcript = groq_client.audio.transcriptions.create(
-                                model="whisper-large-v3",
-                                file=audio,
-                                response_format="text"
-                            )
-                        st.success("Audio transcribed successfully!")
-                        return transcript, 'en'  # Whisper defaults to English
-                        
-                    except Exception as e:
-                        st.error(f"Transcription failed: {str(e)}")
-                        return None, None
-                    finally:
-                        # Cleanup
-                        if os.path.exists(output_file):
-                            os.remove(output_file)
-                else:
-                    st.error("Audio conversion failed")
-                    return None, None
-                    
+                st.success("Transcription successful!")
+                return transcript, 'en'  # Default to English
+                
             except Exception as e:
-                st.error(f"Audio download failed: {str(e)}")
+                st.error(f"Transcription failed: {str(e)}")
                 return None, None
             
     except Exception as e:

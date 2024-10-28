@@ -1,11 +1,14 @@
 streamlit
 openai>=1.0.0
 youtube_transcript_api
+transformers
+accelerate
+bitsandbytes
+nltk
 langchain
 python-dotenv
 pytube
-moviepy
-requests
+torch
 
 
 
