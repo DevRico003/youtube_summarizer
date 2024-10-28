@@ -126,7 +126,11 @@ def extract_video_id(youtube_url):
         r'(?:embed\/)([0-9A-Za-z_-]{11})',   # Embed URLs
         r'(?:youtu\.be\/)([0-9A-Za-z_-]{11})',  # Shortened URLs
         r'(?:shorts\/)([0-9A-Za-z_-]{11})',   # YouTube Shorts
+        r'^([0-9A-Za-z_-]{11})$'  # Just the video ID
     ]
+    
+    # Clean the URL first
+    youtube_url = youtube_url.strip()
     
     for pattern in patterns:
         match = re.search(pattern, youtube_url)
@@ -136,13 +140,13 @@ def extract_video_id(youtube_url):
     raise ValueError("Could not extract video ID from URL")
 
 def get_transcript(youtube_url):
-    """Get transcript from YouTube or create one using Whisper"""
+    """Get transcript from YouTube with enhanced error handling"""
     try:
         video_id = extract_video_id(youtube_url)
         
+        # First attempt: Try getting transcript directly
         try:
             transcript_list = YouTubeTranscriptApi.list_transcripts(video_id)
-            
             try:
                 transcript = transcript_list.find_manually_created_transcript()
             except:
@@ -150,17 +154,46 @@ def get_transcript(youtube_url):
             
             full_transcript = " ".join([part['text'] for part in transcript.fetch()])
             language_code = transcript.language_code
+            return full_transcript, language_code
             
         except Exception as e:
-            st.warning("No YouTube transcript available. Creating transcript from audio...")
-            audio_file = download_audio(youtube_url)
-            full_transcript = transcribe_audio(audio_file)
-            language_code = "en"
+            st.warning(f"Direct transcript access failed: {str(e)}")
+            
+            # Second attempt: Try with different language options
+            try:
+                transcripts = YouTubeTranscriptApi.list_transcripts(video_id)
+                available_transcripts = transcripts._manually_created_transcripts.copy()
+                available_transcripts.update(transcripts._generated_transcripts)
+                
+                for lang_code in ['en', 'de', 'es', 'fr', 'auto']:
+                    if lang_code in available_transcripts:
+                        transcript = available_transcripts[lang_code]
+                        full_transcript = " ".join([part['text'] for part in transcript.fetch()])
+                        return full_transcript, lang_code
+                        
+            except Exception as e2:
+                st.warning(f"Language-specific transcript access failed: {str(e2)}")
+                
+                # Third attempt: Try getting any available transcript
+                try:
+                    transcript = YouTubeTranscriptApi.get_transcript(video_id)
+                    full_transcript = " ".join([part['text'] for part in transcript])
+                    return full_transcript, 'en'  # Default to English
+                    
+                except Exception as e3:
+                    st.warning(f"Fallback transcript access failed: {str(e3)}")
+                    
+                    # Final attempt: Use audio transcription
+                    st.warning("Attempting audio transcription as last resort...")
+                    audio_file = download_audio(youtube_url)
+                    if audio_file:
+                        full_transcript = transcribe_audio(audio_file)
+                        return full_transcript, 'en'
+                    else:
+                        raise Exception("All transcript retrieval methods failed")
         
-        return full_transcript, language_code
-        
-    except ValueError as e:
-        st.error(f"Invalid YouTube URL: {str(e)}")
+    except Exception as e:
+        st.error(f"Could not get transcript: {str(e)}")
         return None, None
 
 def get_available_languages():
