@@ -15,21 +15,11 @@ def load_environment():
     if os.path.exists(env_path):
         load_dotenv(env_path)
     
-    required_vars = {
-        'GROQ_API_KEY': "GROQ_API_KEY not found in environment variables",
-        'YOUTUBE_EMAIL': "YOUTUBE_EMAIL not found in environment variables",
-        'YOUTUBE_PASSWORD': "YOUTUBE_PASSWORD not found in environment variables"
-    }
+    api_key = os.getenv('GROQ_API_KEY')
+    if not api_key:
+        raise ValueError("GROQ_API_KEY not found in environment variables")
     
-    missing_vars = []
-    for var, message in required_vars.items():
-        if not os.getenv(var):
-            missing_vars.append(message)
-    
-    if missing_vars:
-        raise ValueError("\n".join(missing_vars))
-    
-    return os.getenv('GROQ_API_KEY')
+    return api_key
 
 # Initialize clients with environment variables
 try:
@@ -51,7 +41,7 @@ except Exception as e:
     st.stop()
 
 def download_audio(youtube_url):
-    """Download audio from YouTube video with authentication"""
+    """Download audio from YouTube video with OAuth authentication"""
     ydl_opts = {
         'format': 'bestaudio/best',
         'postprocessors': [{
@@ -62,10 +52,9 @@ def download_audio(youtube_url):
         'outtmpl': '%(id)s.%(ext)s',
         'quiet': True,
         'no_warnings': True,
-        # YouTube authentication
-        'username': os.getenv('YOUTUBE_EMAIL'),
-        'password': os.getenv('YOUTUBE_PASSWORD'),
-        'cookiefile': 'youtube.cookies',
+        # YouTube OAuth authentication
+        'username': 'oauth',  # Use OAuth authentication
+        'password': '',       # Empty password for OAuth
         # Additional options
         'nocheckcertificate': True,
         'ignoreerrors': False,
@@ -80,28 +69,33 @@ def download_audio(youtube_url):
     
     try:
         with yt_dlp.YoutubeDL(ydl_opts) as ydl:
-            # Try to login first
-            try:
-                ydl.cache.remove()
-                ydl.download([youtube_url])
-            except Exception as e:
-                st.error(f"Login error: {str(e)}")
-                return None
-                
             info = ydl.extract_info(youtube_url, download=True)
             audio_file = f"{info['id']}.mp3"
-            
         return audio_file
     except Exception as e:
         st.error(f"Error downloading audio: {str(e)}")
-        # Fallback method with different options
+        # Fallback method without authentication
         try:
-            fallback_opts = ydl_opts.copy()
-            fallback_opts.update({
-                'format': 'worstaudio/worst',
+            fallback_opts = {
+                'format': 'bestaudio/best',
+                'postprocessors': [{
+                    'key': 'FFmpegExtractAudio',
+                    'preferredcodec': 'mp3',
+                    'preferredquality': '192',
+                }],
+                'outtmpl': '%(id)s.%(ext)s',
+                'quiet': True,
+                'no_warnings': True,
                 'extract_flat': True,
-                'force_generic_extractor': True
-            })
+                'force_generic_extractor': True,
+                'geo_bypass': True,
+                'nocheckcertificate': True,
+                'ignoreerrors': True,
+                'no_color': True,
+                'http_headers': {
+                    'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
+                }
+            }
             with yt_dlp.YoutubeDL(fallback_opts) as ydl:
                 info = ydl.extract_info(youtube_url, download=True)
                 audio_file = f"{info['id']}.mp3"
