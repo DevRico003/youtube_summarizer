@@ -6,6 +6,7 @@ from langchain.text_splitter import RecursiveCharacterTextSplitter
 from dotenv import load_dotenv
 import yt_dlp
 import tempfile
+import re  # Add this at the top with other imports
 
 # Load environment variables
 env_path = '/home/devrico003/youtube_summarizer/.env'  # Change the Path
@@ -56,28 +57,49 @@ def transcribe_audio(audio_file):
         if os.path.exists(audio_file):
             os.remove(audio_file)
 
+def extract_video_id(youtube_url):
+    """Extract video ID from different YouTube URL formats"""
+    patterns = [
+        r'(?:v=|\/)([0-9A-Za-z_-]{11}).*',  # Standard and shared URLs
+        r'(?:embed\/)([0-9A-Za-z_-]{11})',   # Embed URLs
+        r'(?:youtu\.be\/)([0-9A-Za-z_-]{11})',  # Shortened URLs
+        r'(?:shorts\/)([0-9A-Za-z_-]{11})',   # YouTube Shorts
+    ]
+    
+    for pattern in patterns:
+        match = re.search(pattern, youtube_url)
+        if match:
+            return match.group(1)
+    
+    raise ValueError("Could not extract video ID from URL")
+
 def get_transcript(youtube_url):
     """Get transcript from YouTube or create one using Whisper"""
-    video_id = youtube_url.split("v=")[-1]
-    
     try:
-        transcript_list = YouTubeTranscriptApi.list_transcripts(video_id)
+        video_id = extract_video_id(youtube_url)
         
         try:
-            transcript = transcript_list.find_manually_created_transcript()
-        except:
-            transcript = next(iter(transcript_list))
+            transcript_list = YouTubeTranscriptApi.list_transcripts(video_id)
+            
+            try:
+                transcript = transcript_list.find_manually_created_transcript()
+            except:
+                transcript = next(iter(transcript_list))
+            
+            full_transcript = " ".join([part['text'] for part in transcript.fetch()])
+            language_code = transcript.language_code
+            
+        except Exception as e:
+            st.warning("No YouTube transcript available. Creating transcript from audio...")
+            audio_file = download_audio(youtube_url)
+            full_transcript = transcribe_audio(audio_file)
+            language_code = "en"
         
-        full_transcript = " ".join([part['text'] for part in transcript.fetch()])
-        language_code = transcript.language_code
+        return full_transcript, language_code
         
-    except Exception as e:
-        st.warning("No YouTube transcript available. Creating transcript from audio...")
-        audio_file = download_audio(youtube_url)
-        full_transcript = transcribe_audio(audio_file)
-        language_code = "en"
-    
-    return full_transcript, language_code
+    except ValueError as e:
+        st.error(f"Invalid YouTube URL: {str(e)}")
+        return None, None
 
 def get_available_languages():
     """Return a dictionary of available languages"""
