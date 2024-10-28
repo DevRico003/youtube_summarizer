@@ -18,18 +18,19 @@ while [ $RETRY_COUNT -lt $MAX_RETRIES ]; do
     # Verwende unbuffer für echte Live-Ausgabe
     unbuffer python3 /app/update_cookies.py 2>&1 | tee -a /app/logs/initial_cookie_update.log | while IFS= read -r line; do
         echo "[$(date '+%Y-%m-%d %H:%M:%S')] $line"
+        
+        # Prüfe auf erfolgreichen Abschluss
+        if [[ "$line" == *"Browser wird geschlossen..."* ]]; then
+            if [ -f /app/data/cookies.txt ] && [ -s /app/data/cookies.txt ]; then
+                echo "[$(date '+%Y-%m-%d %H:%M:%S')] Initial cookie update completed successfully"
+                exit 0
+            fi
+        fi
     done
     
-    if [ -f /app/data/cookies.txt ]; then
-        echo "[$(date '+%Y-%m-%d %H:%M:%S')] Initial cookie update completed successfully"
-        echo "[$(date '+%Y-%m-%d %H:%M:%S')] Cookie file contents:"
-        head -n 5 /app/data/cookies.txt | while IFS= read -r line; do
-            echo "[$(date '+%Y-%m-%d %H:%M:%S')] $line"
-        done
-        echo "[$(date '+%Y-%m-%d %H:%M:%S')] ..."
-        exit 0
-    else
-        RETRY_COUNT=$((RETRY_COUNT+1))
+    # Wenn der Loop beendet wurde ohne exit 0, war der Versuch nicht erfolgreich
+    RETRY_COUNT=$((RETRY_COUNT+1))
+    if [ $RETRY_COUNT -lt $MAX_RETRIES ]; then
         echo "[$(date '+%Y-%m-%d %H:%M:%S')] Attempt $RETRY_COUNT failed. Retrying in 5 seconds..."
         sleep 5
     fi
