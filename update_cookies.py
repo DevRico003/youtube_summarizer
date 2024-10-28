@@ -1,141 +1,64 @@
 import os
 import time
-import requests
-import json
-from dotenv import load_dotenv
-import shutil
-import re
-import random
-import string
+from datetime import datetime
 
-def generate_random_string(length):
-    """Generate a random string of fixed length"""
-    letters = string.ascii_letters + string.digits
-    return ''.join(random.choice(letters) for i in range(length))
-
-def extract_cookies():
-    """Extract essential YouTube cookies"""
+def update_cookie_expiry():
     try:
-        print("Starting cookie extraction process...")
-        
+        # Pfade definieren
         cookies_path = os.path.join(os.path.dirname(__file__), 'cookies.txt')
+        temp_path = os.path.join(os.path.dirname(__file__), 'cookies_temp.txt')
         
-        if os.path.exists(cookies_path):
-            backup_path = cookies_path + '.backup'
-            shutil.copy2(cookies_path, backup_path)
-            print("Created backup of existing cookies file")
-        
-        # Current timestamp and future timestamp
+        # Aktuelle Zeit und Zukunftsdaten berechnen
         current_time = int(time.time())
-        future_time = current_time + (365 * 24 * 60 * 60)  # 1 year in the future
+        one_year = current_time + (365 * 24 * 60 * 60)
+        two_years = current_time + (2 * 365 * 24 * 60 * 60)
         
-        # Essential YouTube cookies with realistic values
-        essential_cookies = [
-            {
-                'name': 'LOGIN_INFO',
-                'value': f'AFmmF2swRAIg{generate_random_string(32)}:QUQ3MjNmd{generate_random_string(128)}',
-                'domain': '.youtube.com',
-                'expiry': future_time,
-                'secure': True
-            },
-            {
-                'name': 'HSID',
-                'value': generate_random_string(18),
-                'domain': '.youtube.com',
-                'expiry': future_time,
-                'secure': False
-            },
-            {
-                'name': 'SSID',
-                'value': generate_random_string(18),
-                'domain': '.youtube.com',
-                'expiry': future_time,
-                'secure': True
-            },
-            {
-                'name': 'APISID',
-                'value': generate_random_string(24),
-                'domain': '.youtube.com',
-                'expiry': future_time,
-                'secure': False
-            },
-            {
-                'name': 'SAPISID',
-                'value': generate_random_string(24),
-                'domain': '.youtube.com',
-                'expiry': future_time,
-                'secure': True
-            },
-            {
-                'name': '__Secure-1PAPISID',
-                'value': generate_random_string(24),
-                'domain': '.youtube.com',
-                'expiry': future_time,
-                'secure': True
-            },
-            {
-                'name': '__Secure-3PAPISID',
-                'value': generate_random_string(24),
-                'domain': '.youtube.com',
-                'expiry': future_time,
-                'secure': True
-            },
-            {
-                'name': 'PREF',
-                'value': 'f6=40000080&tz=Europe.Berlin&f5=20000&f7=100&f4=4000000',
-                'domain': '.youtube.com',
-                'expiry': future_time,
-                'secure': True
-            },
-            {
-                'name': 'SID',
-                'value': f'g.a000{generate_random_string(160)}',
-                'domain': '.youtube.com',
-                'expiry': future_time,
-                'secure': False
-            },
-            {
-                'name': 'VISITOR_INFO1_LIVE',
-                'value': generate_random_string(12),
-                'domain': '.youtube.com',
-                'expiry': future_time,
-                'secure': True
-            },
-            {
-                'name': 'YSC',
-                'value': generate_random_string(11),
-                'domain': '.youtube.com',
-                'expiry': 0,  # Session cookie
-                'secure': True
-            }
-        ]
-        
-        # Write cookies in Netscape format
-        print("Writing cookies file...")
-        with open(cookies_path, 'w') as f:
-            f.write("# Netscape HTTP Cookie File\n")
-            f.write("# http://curl.haxx.se/rfc/cookie_spec.html\n")
-            f.write("# This is a generated file!  Do not edit.\n\n")
+        # Cookie-Datei lesen und aktualisieren
+        with open(cookies_path, 'r') as original, open(temp_path, 'w') as temp:
+            # Header kopieren
+            temp.write("# Netscape HTTP Cookie File\n")
+            temp.write("# http://curl.haxx.se/rfc/cookie_spec.html\n")
+            temp.write("# This is a generated file!  Do not edit.\n\n")
             
-            for cookie in essential_cookies:
-                domain = cookie['domain']
-                path = '/'
-                secure = 'TRUE' if cookie.get('secure', True) else 'FALSE'
-                expiry = cookie.get('expiry', 0)
-                name = cookie['name']
-                value = cookie['value']
+            # Cookies verarbeiten
+            for line in original:
+                if line.startswith('#') or not line.strip():
+                    continue
+                    
+                parts = line.strip().split('\t')
+                if len(parts) != 7:
+                    continue
                 
-                f.write(f"{domain}\tTRUE\t{path}\t{secure}\t{expiry}\t{name}\t{value}\n")
+                domain, subdomain, path, secure, expiry, name, value = parts
+                
+                # Spezielle Behandlung für verschiedene Cookie-Typen
+                if name in ['YSC']:
+                    # Session-Cookie
+                    expiry = '0'
+                elif name in ['VISITOR_INFO1_LIVE', 'VISITOR_PRIVACY_METADATA']:
+                    # Längere Gültigkeit
+                    expiry = str(two_years)
+                elif name.startswith('__Secure-') and name.endswith('PSIDTS'):
+                    # Kurze Gültigkeit
+                    expiry = str(current_time + 48 * 60 * 60)  # 48 Stunden
+                elif name.startswith('__Secure-') and name.endswith('PSIDCC'):
+                    # Mittlere Gültigkeit
+                    expiry = str(current_time + 7 * 24 * 60 * 60)  # 7 Tage
+                else:
+                    # Standard-Gültigkeit
+                    expiry = str(one_year)
+                
+                # Aktualisierte Cookie-Zeile schreiben
+                temp.write(f"{domain}\t{subdomain}\t{path}\t{secure}\t{expiry}\t{name}\t{value}\n")
         
-        print("Cookies saved successfully!")
-        return True
-            
+        # Temporäre Datei mit der originalen austauschen
+        os.replace(temp_path, cookies_path)
+        print(f"Cookies wurden erfolgreich aktualisiert: {datetime.now()}")
+        
     except Exception as e:
-        print(f"Error: {str(e)}")
-        if 'backup_path' in locals() and os.path.exists(backup_path):
-            shutil.copy2(backup_path, cookies_path)
-            print("Restored cookies from backup")
-        return False
+        print(f"Fehler beim Aktualisieren der Cookies: {str(e)}")
+        if os.path.exists(temp_path):
+            os.remove(temp_path)
 
 if __name__ == "__main__":
-    extract_cookies()
+    update_cookie_expiry()
