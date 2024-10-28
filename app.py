@@ -41,7 +41,7 @@ except Exception as e:
     st.stop()
 
 def download_audio(youtube_url):
-    """Download audio from YouTube video"""
+    """Download audio from YouTube video with enhanced anti-bot protection"""
     ydl_opts = {
         'format': 'bestaudio/best',
         'postprocessors': [{
@@ -50,44 +50,91 @@ def download_audio(youtube_url):
             'preferredquality': '192',
         }],
         'outtmpl': '%(id)s.%(ext)s',
-        'quiet': False,  # Enable output for debugging
-        'no_warnings': False,  # Show warnings
-        'verbose': True,  # Add verbose output
-        # Additional options
+        'quiet': False,
+        'verbose': True,
+        # Enhanced anti-bot options
         'nocheckcertificate': True,
-        'ignoreerrors': False,
-        'no_color': True,
-        'extract_flat': False,
-        'force_generic_extractor': False,
         'geo_bypass': True,
+        'geo_bypass_country': 'US',
+        'sleep_interval': 1,  # Add delay between requests
+        'max_sleep_interval': 5,
         'http_headers': {
             'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
-        }
+            'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,image/apng,*/*;q=0.8',
+            'Accept-Language': 'en-US,en;q=0.9',
+            'Accept-Encoding': 'gzip, deflate, br',
+            'Referer': 'https://www.youtube.com/',
+            'DNT': '1',
+            'Connection': 'keep-alive',
+            'Upgrade-Insecure-Requests': '1',
+            'Sec-Fetch-Dest': 'document',
+            'Sec-Fetch-Mode': 'navigate',
+            'Sec-Fetch-Site': 'same-origin',
+            'Sec-Fetch-User': '?1',
+            'sec-ch-ua': '"Not_A Brand";v="8", "Chromium";v="120"',
+            'sec-ch-ua-mobile': '?0',
+            'sec-ch-ua-platform': '"Windows"'
+        },
+        # Additional options to bypass restrictions
+        'extractor_args': {
+            'youtube': {
+                'player_client': ['android'],
+                'player_skip': ['webpage', 'config'],
+                'skip': ['hls', 'dash']
+            }
+        },
+        'socket_timeout': 30,
+        'retries': 10
     }
     
     try:
-        st.info("Starting audio download...")
+        st.info("Starting audio download with enhanced settings...")
         with yt_dlp.YoutubeDL(ydl_opts) as ydl:
             st.info("Extracting video info...")
-            info = ydl.extract_info(youtube_url, download=True)
-            audio_file = f"{info['id']}.mp3"
-            st.success(f"Audio downloaded: {audio_file}")
-            return audio_file
+            # Pre-configure the downloader
+            ydl.cache.remove()
+            
+            # Extract info first
+            info = ydl.extract_info(youtube_url, download=False)
+            if info is None:
+                raise Exception("Could not extract video info")
+                
+            # Then download
+            ydl.download([youtube_url])
+            
+            video_id = info['id']
+            audio_file = f"{video_id}.mp3"
+            
+            if os.path.exists(audio_file):
+                st.success(f"Audio downloaded: {audio_file}")
+                return audio_file
+            else:
+                raise Exception("Audio file not found after download")
+                
     except Exception as e:
         st.error(f"Error in primary download method: {str(e)}")
-        # Fallback method
+        # Fallback method with different settings
         try:
             st.info("Attempting fallback download method...")
             fallback_opts = ydl_opts.copy()
             fallback_opts.update({
-                'format': 'worstaudio/worst',
-                'extract_flat': True
+                'format': 'worstaudio[ext=m4a]',
+                'extractor_args': {
+                    'youtube': {
+                        'player_client': ['ios'],
+                        'player_skip': ['js']
+                    }
+                }
             })
             with yt_dlp.YoutubeDL(fallback_opts) as ydl:
+                ydl.cache.remove()
                 info = ydl.extract_info(youtube_url, download=True)
                 audio_file = f"{info['id']}.mp3"
-                st.success(f"Audio downloaded with fallback: {audio_file}")
-                return audio_file
+                if os.path.exists(audio_file):
+                    st.success(f"Audio downloaded with fallback: {audio_file}")
+                    return audio_file
+                else:
+                    raise Exception("Audio file not found after fallback download")
         except Exception as e:
             st.error(f"Fallback download failed: {str(e)}")
             return None
