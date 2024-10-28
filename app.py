@@ -261,16 +261,26 @@ def summarize_with_langchain_and_openai(transcript, language_code, model_name='l
         return None
 
 def download_audio(youtube_url):
-    """Download audio using yt-dlp"""
+    """Download audio using yt-dlp with cookies"""
     try:
         st.info("Downloading audio...")
         video_id = extract_video_id(youtube_url)
         
-        # Create temporary directory if it doesn't exist
         temp_dir = os.getenv('TMPDIR', '/tmp/youtube_audio')
         os.makedirs(temp_dir, exist_ok=True)
         
         output_file = os.path.join(temp_dir, f"{video_id}.mp3")
+        
+        # Get cookies from environment variable
+        cookies_content = os.getenv('YOUTUBE_COOKIES')
+        if not cookies_content:
+            st.error("YouTube cookies not found in environment variables")
+            return None
+            
+        # Create temporary cookies file
+        cookies_file = os.path.join(temp_dir, 'cookies.txt')
+        with open(cookies_file, 'w') as f:
+            f.write(cookies_content)
         
         ydl_opts = {
             'format': 'bestaudio/best',
@@ -282,25 +292,31 @@ def download_audio(youtube_url):
             'outtmpl': output_file,
             'quiet': True,
             'no_warnings': True,
-            'extract_flat': False,
-            'force_generic_extractor': False,
-            'geo_bypass': True,
+            # Use cookies file
+            'cookiefile': cookies_file,
             'http_headers': {
-                'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
+                'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36',
                 'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8',
                 'Accept-Language': 'en-us,en;q=0.5',
                 'Sec-Fetch-Mode': 'navigate'
             }
         }
         
-        with yt_dlp.YoutubeDL(ydl_opts) as ydl:
-            ydl.download([youtube_url])
-            
-        if os.path.exists(output_file):
-            st.success("Audio downloaded successfully!")
-            return output_file
-        else:
-            raise Exception("Download completed but file not found")
+        try:
+            with yt_dlp.YoutubeDL(ydl_opts) as ydl:
+                ydl.cache.remove()
+                ydl.download([youtube_url])
+                
+            if os.path.exists(output_file):
+                st.success("Audio downloaded successfully!")
+                return output_file
+            else:
+                raise Exception("Download completed but file not found")
+                
+        finally:
+            # Clean up cookies file
+            if os.path.exists(cookies_file):
+                os.remove(cookies_file)
             
     except Exception as e:
         st.error(f"Error downloading audio: {str(e)}")
