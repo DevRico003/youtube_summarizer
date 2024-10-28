@@ -43,7 +43,7 @@ except Exception as e:
     st.stop()
 
 def download_audio(youtube_url):
-    """Download audio from YouTube video"""
+    """Download audio from YouTube video with authentication"""
     ydl_opts = {
         'format': 'bestaudio/best',
         'postprocessors': [{
@@ -52,18 +52,13 @@ def download_audio(youtube_url):
             'preferredquality': '192',
         }],
         'outtmpl': '%(id)s.%(ext)s',
-        # Add these options to bypass age restriction and bot check
-        'nocheckcertificate': True,
-        'ignoreerrors': False,
-        'no_warnings': True,
         'quiet': True,
-        'extract_flat': False,
-        'force_generic_extractor': False,
-        # Add cookies file if available
-        'cookiefile': 'cookies.txt',  # Optional: You can create this file with browser cookies
+        'no_warnings': True,
+        # YouTube authentication options
+        'cookiesfrombrowser': ('chrome',),  # Use cookies from Chrome browser
         # Add these options to handle bot protection
         'http_headers': {
-            'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36',
+            'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
             'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8',
             'Accept-Language': 'en-us,en;q=0.5',
             'Sec-Fetch-Mode': 'navigate',
@@ -77,10 +72,16 @@ def download_audio(youtube_url):
         return audio_file
     except Exception as e:
         st.error(f"Error downloading audio: {str(e)}")
-        # Fallback to alternative download method if needed
+        # Fallback method with different options
         try:
-            ydl_opts['format'] = 'worstaudio/worst'  # Try with lower quality as fallback
-            with yt_dlp.YoutubeDL(ydl_opts) as ydl:
+            fallback_opts = ydl_opts.copy()
+            fallback_opts.update({
+                'format': 'worstaudio/worst',
+                'cookiesfrombrowser': ('firefox',),  # Try Firefox as fallback
+                'extract_flat': True,
+                'force_generic_extractor': True,
+            })
+            with yt_dlp.YoutubeDL(fallback_opts) as ydl:
                 info = ydl.extract_info(youtube_url, download=True)
                 audio_file = f"{info['id']}.mp3"
             return audio_file
