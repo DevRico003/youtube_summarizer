@@ -9,7 +9,8 @@ from selenium import webdriver
 from selenium.webdriver.common.by import By
 from selenium.webdriver.support.ui import WebDriverWait
 from selenium.webdriver.support import expected_conditions as EC
-import yt_dlp
+from pytube import YouTube
+import subprocess
 
 def load_environment():
     """Load environment variables"""
@@ -92,55 +93,56 @@ def get_transcript(youtube_url):
             st.warning(f"YouTube transcript not available: {str(e)}")
             st.info("Attempting to transcribe audio with Whisper...")
             
-            # Download audio using yt-dlp
-            ydl_opts = {
-                'format': 'bestaudio/best',
-                'postprocessors': [{
-                    'key': 'FFmpegExtractAudio',
-                    'preferredcodec': 'mp3',
-                    'preferredquality': '192',
-                }],
-                'outtmpl': '%(id)s.%(ext)s',
-                'quiet': True,
-                'no_warnings': True,
-                'extract_flat': False,
-                'force_generic_extractor': False,
-                'geo_bypass': True,
-                'http_headers': {
-                    'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
-                }
-            }
-            
             try:
-                with yt_dlp.YoutubeDL(ydl_opts) as ydl:
-                    info = ydl.extract_info(youtube_url, download=True)
-                    audio_file = f"{info['id']}.mp3"
+                # Download audio using pytube
+                st.info("Downloading audio...")
+                yt = YouTube(youtube_url)
+                
+                # Get the audio stream
+                audio_stream = yt.streams.filter(only_audio=True, file_extension='mp4').first()
+                
+                if not audio_stream:
+                    raise Exception("No audio stream found")
+                
+                # Download to temporary file
+                temp_file = audio_stream.download(
+                    output_path=os.getenv('TMPDIR', '/tmp'),
+                    filename=f"{video_id}_temp.mp4"
+                )
+                
+                # Convert to MP3 using FFmpeg
+                output_file = os.path.join(os.getenv('TMPDIR', '/tmp'), f"{video_id}.mp3")
+                os.system(f'ffmpeg -i "{temp_file}" -vn -acodec libmp3lame -ab 192k -ar 44100 "{output_file}" -y')
+                
+                # Clean up temp file
+                if os.path.exists(temp_file):
+                    os.remove(temp_file)
+                
+                if os.path.exists(output_file):
+                    st.success("Audio downloaded successfully!")
                     
-                    if os.path.exists(audio_file):
-                        st.success("Audio downloaded successfully!")
+                    # Transcribe with Groq's Whisper
+                    try:
+                        with open(output_file, "rb") as audio:
+                            transcript = groq_client.audio.transcriptions.create(
+                                model="whisper-large-v3",
+                                file=audio,
+                                response_format="text"
+                            )
+                        st.success("Audio transcribed successfully!")
+                        return transcript, 'en'  # Whisper defaults to English
                         
-                        # Transcribe with Groq's Whisper
-                        try:
-                            with open(audio_file, "rb") as audio:
-                                transcript = groq_client.audio.transcriptions.create(
-                                    model="whisper-large-v3",
-                                    file=audio,
-                                    response_format="text"
-                                )
-                            st.success("Audio transcribed successfully!")
-                            return transcript, 'en'  # Whisper defaults to English
-                            
-                        except Exception as e:
-                            st.error(f"Transcription failed: {str(e)}")
-                            return None, None
-                        finally:
-                            # Cleanup
-                            if os.path.exists(audio_file):
-                                os.remove(audio_file)
-                    else:
-                        st.error("Audio download failed")
+                    except Exception as e:
+                        st.error(f"Transcription failed: {str(e)}")
                         return None, None
-                        
+                    finally:
+                        # Cleanup
+                        if os.path.exists(output_file):
+                            os.remove(output_file)
+                else:
+                    st.error("Audio conversion failed")
+                    return None, None
+                    
             except Exception as e:
                 st.error(f"Audio download failed: {str(e)}")
                 return None, None
@@ -295,6 +297,59 @@ def summarize_with_langchain_and_openai(transcript, language_code, model_name='l
         return response.choices[0].message.content
     except Exception as e:
         st.error(f"Error with Groq API: {str(e)}")
+        return None
+
+def download_audio(youtube_url):
+    """Download audio using pytube with fallback options"""
+    try:
+        st.info("Downloading audio with pytube...")
+        
+        # Initialize YouTube object with custom parameters
+        yt = YouTube(
+            youtube_url,
+            use_oauth=True,
+            allow_oauth_cache=True
+        )
+        
+        # Get the audio stream
+        audio_stream = yt.streams.filter(only_audio=True).first()
+        
+        if not audio_stream:
+            raise Exception("No audio stream found")
+            
+        # Download to temporary file
+        temp_file = audio_stream.download(
+            output_path=os.getenv('TMPDIR', '/tmp'),
+            filename=f"{yt.video_id}_temp.mp4"
+        )
+        
+        # Convert to MP3 using FFmpeg
+        output_file = os.path.join(os.getenv('TMPDIR', '/tmp'), f"{yt.video_id}.mp3")
+        
+        # FFmpeg command to convert to MP3
+        command = [
+            'ffmpeg',
+            '-i', temp_file,
+            '-vn',  # No video
+            '-acodec', 'libmp3lame',
+            '-ab', '192k',
+            '-ar', '44100',
+            '-y',  # Overwrite output file
+            output_file
+        ]
+        
+        # Execute FFmpeg command
+        subprocess.run(command, check=True, capture_output=True)
+        
+        # Clean up temporary file
+        if os.path.exists(temp_file):
+            os.remove(temp_file)
+            
+        st.success("Audio downloaded and converted successfully!")
+        return output_file
+        
+    except Exception as e:
+        st.error(f"Error downloading audio: {str(e)}")
         return None
 
 def main():
