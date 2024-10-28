@@ -10,6 +10,7 @@ RUN apt-get update && apt-get install -y \
     default-jdk \
     wget \
     curl \
+    expect-dev \
     && rm -rf /var/lib/apt/lists/*
 
 # Install Google Chrome
