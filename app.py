@@ -97,8 +97,8 @@ def get_transcript(youtube_url):
 def get_available_languages():
     """Return a dictionary of available languages"""
     return {
-        'English': 'en',
         'Deutsch': 'de',
+        'English': 'en',
         'Italiano': 'it',
         'Español': 'es',
         'Français': 'fr',
@@ -109,8 +109,8 @@ def get_available_languages():
         'Русский': 'ru'
     }
 
-def create_summary_prompt(text, target_language):
-    """Create an optimized prompt for summarization in the target language"""
+def create_summary_prompt(text, target_language, mode='video'):
+    """Create an optimized prompt for summarization in the target language and mode"""
     language_prompts = {
         'en': {
             'title': 'TITLE',
@@ -137,62 +137,149 @@ def create_summary_prompt(text, target_language):
 
     prompts = language_prompts.get(target_language, language_prompts['en'])
 
-    system_prompt = f"""You are an expert content analyst and summarizer. Create a comprehensive 
-    summary in {target_language}. Ensure all content is fully translated and culturally adapted 
-    to the target language."""
+    if mode == 'podcast':
+        system_prompt = f"""You are an expert content analyst and summarizer. Create a comprehensive 
+        podcast-style summary in {target_language}. Ensure all content is fully translated and culturally adapted 
+        to the target language."""
 
-    user_prompt = f"""Please provide a detailed summary of the following content in {target_language}. 
-    Structure your response as follows:
+        user_prompt = f"""Please provide a detailed podcast-style summary of the following content in {target_language}. 
+        Structure your response as follows:
 
-    🎯 {prompts['title']}: Create a descriptive title
+        🎙️ {prompts['title']}: Create an engaging title
 
-    📝 {prompts['overview']} (2-3 sentences):
-    - Provide a brief context and main purpose
+        🎧 {prompts['overview']} (3-5 sentences):
+        - Provide a detailed context and main purpose
 
-    🔑 {prompts['key_points']}:
-    - Extract and explain the main arguments
-    - Include specific examples
-    - Highlight unique perspectives
+        🔍 {prompts['key_points']}:
+        - Deep dive into the main arguments
+        - Include specific examples and anecdotes
+        - Highlight unique perspectives and expert opinions
 
-    💡 {prompts['takeaways']}:
-    - List 3-5 practical insights
-    - Explain their significance
+        📈 {prompts['takeaways']}:
+        - List 5-7 practical insights
+        - Explain their significance and potential impact
 
-    🔄 {prompts['context']}:
-    - Broader context discussion
-    - Future implications
+        🌐 {prompts['context']}:
+        - Broader context discussion
+        - Future implications and expert predictions
 
-    Text to summarize: {text}
+        Text to summarize: {text}
 
-    Ensure the summary is comprehensive enough for someone who hasn't seen the original content."""
+        Ensure the summary is comprehensive enough for someone who hasn't seen the original content."""
+
+    else:
+        system_prompt = f"""You are an expert content analyst and summarizer. Create a comprehensive 
+        summary in {target_language}. Ensure all content is fully translated and culturally adapted 
+        to the target language."""
+
+        user_prompt = f"""Please provide a detailed summary of the following content in {target_language}. 
+        Structure your response as follows:
+
+        🎯 {prompts['title']}: Create a descriptive title
+
+        📝 {prompts['overview']} (2-3 sentences):
+        - Provide a brief context and main purpose
+
+        🔑 {prompts['key_points']}:
+        - Extract and explain the main arguments
+        - Include specific examples
+        - Highlight unique perspectives
+
+        💡 {prompts['takeaways']}:
+        - List 3-5 practical insights
+        - Explain their significance
+
+        🔄 {prompts['context']}:
+        - Broader context discussion
+        - Future implications
+
+        Text to summarize: {text}
+
+        Ensure the summary is comprehensive enough for someone who hasn't seen the original content."""
 
     return system_prompt, user_prompt
 
-def summarize_with_langchain_and_openai(transcript, language_code, model_name='llama-3.1-8b-instant'):
+def summarize_with_langchain_and_openai(transcript, language_code, model_name='llama-3.1-8b-instant', mode='video'):
+    # Initial split with larger chunks
     text_splitter = RecursiveCharacterTextSplitter(
-        chunk_size=2000,
-        chunk_overlap=200,
+        chunk_size=7000,  # Keep this to ensure we have room for prompts
+        chunk_overlap=1000,
         length_function=len
     )
     texts = text_splitter.split_text(transcript)
-    text_to_summarize = " ".join(texts[:4])
+    
+    # Create context-rich intermediate summaries
+    intermediate_summaries = []
+    
+    for i, text_chunk in enumerate(texts):
+        # Customized system prompt for intermediate summaries
+        system_prompt = f"""You are an expert content summarizer. Create a detailed 
+        summary of section {i+1} in {language_code}. Maintain important details, arguments, 
+        and connections. This summary will later be part of a comprehensive final summary."""
 
-    system_prompt, user_prompt = create_summary_prompt(text_to_summarize, language_code)
+        # Customized user prompt for intermediate summaries
+        user_prompt = f"""Create a detailed summary of the following section. 
+        Maintain all important information, arguments, and connections.
+        Pay special attention to:
+        - Main topics and arguments
+        - Important details and examples
+        - Connections with other mentioned topics
+        - Key statements and conclusions
 
+        Text: {text_chunk}"""
+        
+        try:
+            response = groq_client.chat.completions.create(
+                model=model_name,
+                messages=[
+                    {"role": "system", "content": system_prompt},
+                    {"role": "user", "content": user_prompt}
+                ],
+                temperature=0.7,
+                max_tokens=8000  # Increased to maximum available tokens
+            )
+            
+            summary = response.choices[0].message.content
+            intermediate_summaries.append(summary)
+            
+        except Exception as e:
+            st.error(f"Error with Groq API during intermediate summarization: {str(e)}")
+            return None
+    
+    # Combine intermediate summaries
+    combined_summary = "\n\n=== Next Section ===\n\n".join(intermediate_summaries)
+    
+    # Final summary with optimized prompt
+    final_system_prompt = f"""You are an expert in creating comprehensive summaries. 
+    Create a coherent, well-structured complete summary in {language_code} from the 
+    provided intermediate summaries. Connect the information logically and establish 
+    important relationships."""
+    
+    final_user_prompt = f"""Create a final, comprehensive summary from the following 
+    intermediate summaries. The summary should:
+    - Include all important topics and arguments
+    - Establish logical connections between topics
+    - Have a clear structure
+    - Highlight key statements and most important insights
+    
+    Intermediate summaries:
+    {combined_summary}"""
+    
     try:
-        response = groq_client.chat.completions.create(
+        final_response = groq_client.chat.completions.create(
             model=model_name,
             messages=[
-                {"role": "system", "content": system_prompt},
-                {"role": "user", "content": user_prompt}
+                {"role": "system", "content": final_system_prompt},
+                {"role": "user", "content": final_user_prompt}
             ],
             temperature=0.7,
-            max_tokens=4000
+            max_tokens=8000  # Increased to maximum available tokens
         )
         
-        return response.choices[0].message.content
+        final_summary = final_response.choices[0].message.content
+        return final_summary
     except Exception as e:
-        st.error(f"Error with Groq API: {str(e)}")
+        st.error(f"Error with Groq API during final summarization: {str(e)}")
         return None
 
 def main():
@@ -202,7 +289,7 @@ def main():
     It works with both videos that have transcripts and those that don't!
     """)
     
-    col1, col2 = st.columns([3, 1])
+    col1, col2, col3 = st.columns([3, 1, 1])
     
     with col1:
         link = st.text_input('🔗 Enter YouTube video URL:')
@@ -215,6 +302,14 @@ def main():
             index=0
         )
         target_language_code = languages[target_language]
+
+    with col3:
+        mode = st.selectbox(
+            '🎙️ Select Mode:',
+            options=['Video', 'Podcast'],
+            index=0
+        )
+        mode = mode.lower()
 
     if st.button('Generate Summary'):
         if link:
@@ -234,7 +329,8 @@ def main():
                     summary = summarize_with_langchain_and_openai(
                         transcript, 
                         target_language_code,
-                        model_name='llama-3.1-8b-instant'
+                        model_name='llama-3.1-8b-instant',
+                        mode=mode
                     )
 
                     status_text.text('✨ Summary Ready!')
