@@ -97,8 +97,8 @@ def get_transcript(youtube_url):
 def get_available_languages():
     """Return a dictionary of available languages"""
     return {
-        'Deutsch': 'de',
         'English': 'en',
+        'Deutsch': 'de',
         'Italiano': 'it',
         'Español': 'es',
         'Français': 'fr',
