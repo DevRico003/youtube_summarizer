@@ -1,3 +1,9 @@
+
+
+
+
+# OLD PYTHON VERSION
+
 # Advanced YouTube Video Summarizer
 
 This is a Python application that creates comprehensive summaries of YouTube videos using Groq's AI models. The application can either use YouTube's transcription or create its own using Groq's Whisper Large V3 Turbo when no transcript is available.
