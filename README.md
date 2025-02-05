@@ -1,3 +1,5 @@
+# NEW VERSION -> Python Version is in the branch "old_python_version"
+
 # YouTube AI Summarizer
 
 A modern Next.js-based tool for AI-powered YouTube video summarization. This application allows you to generate concise summaries of YouTube videos using different AI models, with support for multiple languages and summary styles.
