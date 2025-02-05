@@ -1,166 +1,227 @@
-# Advanced YouTube Video Summarizer
+# YouTube AI Summarizer
 
-This is a Python application that creates comprehensive summaries of YouTube videos using Groq's AI models. The application can either use YouTube's transcription or create its own using Groq's Whisper Large V3 Turbo when no transcript is available.
+A modern Next.js-based tool for AI-powered YouTube video summarization. This application allows you to generate concise summaries of YouTube videos using different AI models, with support for multiple languages and summary styles.
 
-## Features
-- Automatic transcript extraction from YouTube videos
-- Fallback to audio transcription using Groq's Whisper Large V3 Turbo
-- Advanced text chunking with Langchain
-- Comprehensive summarization using Llama 3.1 8B Instant
-- Multi-language support with 12+ languages
-- Language selection for summaries
-- Structured summaries with clear sections
-- Clean and intuitive Streamlit web interface
-- Progress tracking and status updates
+## 🎯 Features
 
-## Prerequisites
+- **Multiple AI Models**: Choose your preferred AI model for summarization:
+  - Google Gemini 2.0 Flash (Fast and efficient)
+  - Groq with Llama 70B (High accuracy)
+  - GPT-4o-mini (Balanced performance)
+- **Multilingual Support**:
+  - Generate summaries in English and German
+  - Clean formatting in both languages
+  - Proper handling of language-specific structures
+- **Flexible Summary Modes**:
+  - Video Summary: Concise, structured overview
+  - Podcast Style: More narrative, detailed analysis
+- **Smart History System**:
+  - Automatic storage in SQLite database
+  - Quick access to previous summaries
+  - Unique constraint handling for video/language combinations
+- **Modern UI/UX**:
+  - Clean, responsive design with Tailwind CSS
+  - Automatic dark/light mode
+  - Progress indicators for summarization
+  - Beautiful markdown rendering
+  - Mobile-friendly interface
 
-Before you begin, ensure you have installed:
+## 🚀 Getting Started
 
-- Python 3.6 or above
-- FFmpeg (required for audio processing)
+### Prerequisites
 
-## Installation 
+- Node.js 15.x or higher
+- npm package manager
+- API keys for the AI services
 
-1. Clone this repository:
+### Installation
+
+1. Clone the repository:
 ```bash
-git clone https://github.com/DevRico003/youtube_summarizer
+git clone [repository-url]
+cd youtube-summarizer
 ```
 
-2. Change into the project directory:
+2. Install dependencies:
 ```bash
-cd youtube_summarizer
+npm install
+# or
+yarn install
 ```
 
-3. Install required packages:
-```bash
-pip install -r requirements.txt
+3. Create a `.env` file in the root directory:
+```env
+GEMINI_API_KEY="your-gemini-api-key"
+GROQ_API_KEY="your-groq-api-key"
+OPENAI_API_KEY="your-openai-api-key"
 ```
 
-4. Install FFmpeg (Ubuntu/Debian):
+4. Set up the database:
 ```bash
-sudo apt-get update
-sudo apt-get install ffmpeg
-```
-For other operating systems, please refer to the [FFmpeg installation guide](https://ffmpeg.org/download.html)
-
-5. Create a `.env` file in your project directory and add your Groq API Key:
-```bash
-GROQ_API_KEY=your_groq_api_key
+npx prisma generate
+npx prisma db push
 ```
 
-6. Update the `env_path` variable in `app.py` to match your `.env` file location.
-
-## Usage
-
-1. Start the application:
+5. Start the development server:
 ```bash
-streamlit run app.py
+npm run dev
+# or
+yarn dev
 ```
 
-2. Open your web browser to the provided URL (typically http://localhost:8501)
+The application will be available at [http://localhost:3000](http://localhost:3000)
 
-3. Enter a YouTube video URL in the input field
+## 🔧 Configuration
 
-4. Select your desired summary language from the dropdown menu
+### Database Setup
+The application uses Prisma with SQLite for data persistence. The configuration is defined in `prisma/schema.prisma`:
+```prisma
+generator client {
+  provider = "prisma-client-js"
+}
 
-5. Click "Generate Summary"
+datasource db {
+  provider = "sqlite"
+  url      = "file:./dev.db"
+}
+```
 
-## Example Usage
+To reset the database if you encounter any issues:
+```bash
+# Remove the existing database
+rm prisma/dev.db
+# Regenerate the database
+npx prisma generate
+npx prisma db push
+```
 
-### 1. Enter YouTube URL and Select Language
-![Input Interface](1.png)
+### Obtaining API Keys
 
-### 2. View Generated Summary
-![Summary Result](2.png)
+1. **Google Gemini API Key**:
+   - Visit [Google AI Studio](https://aistudio.google.com/app/apikey)
+   - Create a new project if needed
+   - Generate an API key
+   - Free tier available with generous limits
 
-The application will:
-- Attempt to fetch the YouTube transcript
-- If no transcript is available, download and transcribe the audio using Groq's Whisper
-- Process and chunk the text appropriately
-- Generate a comprehensive summary with the following sections:
-  - 🎯 Title
-  - 📝 Overview
-  - 🔑 Key Points
-  - 💡 Main Takeaways
-  - 🔄 Context & Implications
+2. **Groq API Key**:
+   - Go to [Groq Cloud](https://console.groq.com/)
+   - Sign up for an account
+   - Navigate to API settings
+   - Generate a new API key
 
-## Summary Structure
+3. **OpenAI API Key**:
+   - Visit [OpenAI Platform](https://platform.openai.com/api-keys)
+   - Create an account or log in
+   - Go to API settings
+   - Generate a new API key
+   - Note: This service requires a paid subscription
 
-Each summary includes:
-- A descriptive title
-- A brief overview (2-3 sentences)
-- Key points with examples and data
-- Practical insights and actionable conclusions
-- Context and broader implications
+## 🆕 Technical Highlights
 
-## Error Handling
+### Recent Migration from Python
+- Previously built with Python and Streamlit
+- Completely rebuilt using Next.js for better performance
+- New architecture using the App Router for improved routing
+- Enhanced state management and real-time updates
 
-The application includes robust error handling for:
-- Invalid YouTube URLs
-- Missing transcripts
-- Failed audio downloads
-- API errors
-- Network issues
+### Performance Improvements
+- Streaming responses for real-time progress updates
+- Efficient chunk processing for long videos
+- Smart caching of summaries
+- Optimized database queries
 
-## Technical Details
+### Modern Tech Stack
+- **Frontend**: Next.js 15+, React, TypeScript
+- **Styling**: Tailwind CSS, shadcn/ui components
+- **Database**: Prisma with SQLite
+- **AI Integration**: Multiple model support
+- **API**: Built-in API routes with streaming support
 
-- Uses Groq's API with OpenAI compatibility layer
-- Implements efficient text chunking with Langchain
-- Uses Llama 3.1 8B Instant model for summarization
-- Employs yt-dlp for reliable video processing
-- Includes automatic cleanup of temporary files
-- Features progress tracking and user feedback
+## 📚 Usage
 
-## Language Support
+1. Visit the homepage
+2. Paste a YouTube URL
+3. Select your preferred:
+   - Language (English/German)
+   - Summary mode (Video/Podcast)
+   - AI model
+4. Click "Generate Summary"
+5. Watch the real-time progress
+6. View your formatted summary
+7. Access previous summaries in the history section
 
-The application supports summaries in multiple languages:
-- English
-- German (Deutsch)
-- Spanish (Español)
-- French (Français)
-- Italian (Italiano)
-- Dutch (Nederlands)
-- Polish (Polski)
-- Portuguese (Português)
-- Japanese (日本語)
-- Chinese (中文)
-- Korean (한국어)
-- Russian (Русский)
-
-Simply select your preferred language from the dropdown menu, and the summary will be generated in that language, regardless of the original video language.
-
-## Contributing
+## 🤝 Contributing
 
 Contributions are welcome! Please feel free to submit a Pull Request.
 
-## License
+## 📝 License
 
-Distributed under the MIT License. See `LICENSE` for more information.
+This project is licensed under the MIT License - see the LICENSE file for details.
 
-## Disclaimer
+## 🚨 Troubleshooting
 
-This application uses Groq's API services. Usage will incur costs based on your Groq account. Please review Groq's pricing structure before extensive use.
+### Database Issues
 
-## Cookie Setup for YouTube Authentication
+If you encounter database errors like "database disk image is malformed", follow these steps:
 
-To access YouTube transcripts, you need to provide authentication cookies. Follow these steps:
+1. Stop the development server
+2. Delete the corrupted database:
+   ```bash
+   rm prisma/dev.db
+   ```
+3. Regenerate the database:
+   ```bash
+   npx prisma generate
+   npx prisma db push
+   ```
+4. Restart the development server:
+   ```bash
+   npm run dev
+   ```
 
-### 1. Install Cookie Extension
-1. Open the Chrome Web Store
-2. Search for "Get cookies.txt"
-3. Install the "Get cookies.txt LOCALLY" extension
-4. Click the extension icon to ensure it's pinned to your browser
+### API Errors
 
-### 2. Export YouTube Cookies
-1. Go to [YouTube](https://www.youtube.com)
-2. Sign in to your YouTube/Google account
-3. Click the "Get cookies.txt" extension icon
-4. Click "Export" to download the cookies file
+If you encounter API errors:
 
-### 3. Configure the Application
-1. Rename the downloaded file to `cookies.txt`
-2. Place the `cookies.txt` file in the same directory as `app.py`
-3. Ensure the file permissions are correct (readable by the application)
+1. Check that all environment variables are properly set in `.env`
+2. Verify that your API keys are valid and have sufficient credits
+3. For history-related errors, try resetting the database as described above
 
-Note: Keep your cookies.txt file secure and never share it publicly, as it contains your authentication information.
+### Common Issues
+
+1. **"Invalid API Key" errors**:
+   - Double-check your API keys in `.env`
+   - Make sure there are no extra spaces or quotes
+   - Verify the keys are active in their respective platforms
+
+2. **"Failed to fetch summaries" error**:
+   - Usually indicates a database issue
+   - Follow the database reset steps above
+   - Check if your database has proper read/write permissions
+
+3. **Performance issues**:
+   - Long videos may take more time to process
+   - Consider using Gemini model for faster processing
+   - Check your network connection
+
+## 📱 Interface & Workflow
+
+### 1. Home Screen
+![Home Screen](1home.png)
+The main interface where users can input a YouTube URL and select their preferred language, summary type, and AI model.
+
+### 2. Generation Process
+![Generating Summary](2generating-summary.png)
+Real-time progress tracking shows the current status of your summary generation, including processing stages and completion percentage.
+
+### 3. Summary View
+![Video Summary](3video-summary.png)
+The generated summary is displayed in a clean, well-structured format with an overview and key points from the video.
+
+### 4. History Dashboard
+![Summary History Dashboard](4summary-history-dashboard.png)
+Access your previously generated summaries through the history dashboard, showing video titles and generation dates.
+
+### 5. Detailed History View
+![Summary History Detail](5summary-history.png)
+View complete details of past summaries, including full analysis and key points.
