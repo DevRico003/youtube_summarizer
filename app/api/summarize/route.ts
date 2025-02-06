@@ -208,25 +208,27 @@ async function transcribeWithWhisper(audioPath: string, groq: Groq): Promise<str
   try {
     // Create form data with the audio file
     const form = new FormData();
-    const fileStream = fs.createReadStream(audioPath);
-    form.append('file', fileStream, {
-      filename: 'audio.flac',
-      contentType: 'audio/flac'
-    });
-    form.append('model', 'whisper-large-v3-turbo');
+    const audioBuffer = fs.readFileSync(audioPath);
+
+    // Create a Blob-like object that Groq can handle
+    const file = {
+      buffer: audioBuffer,
+      name: 'audio.flac',
+      type: 'audio/flac'
+    };
+
+    form.append('file', file);
+    form.append('model', 'whisper-large-v3');
     form.append('language', 'auto');
     form.append('response_format', 'text');
-    form.append('temperature', '0.0');
 
     try {
-      // Make a direct fetch request to OpenAI-compatible endpoint
+      // Make request to Groq API
       const response = await fetch('https://api.groq.com/openai/v1/audio/transcriptions', {
         method: 'POST',
         headers: {
-          'Authorization': `Bearer ${process.env.GROQ_API_KEY}`,
-          ...form.getHeaders()
+          'Authorization': `Bearer ${process.env.GROQ_API_KEY}`
         },
-        // @ts-ignore - form-data is compatible with node-fetch
         body: form
       });
 
@@ -243,26 +245,24 @@ async function transcribeWithWhisper(audioPath: string, groq: Groq): Promise<str
           console.log(`Rate limit hit, waiting ${retryAfter} seconds...`);
           await new Promise(resolve => setTimeout(resolve, parseInt(retryAfter) * 1000));
 
-          // Create new form for retry (as the old one is consumed)
+          // Retry with new form
           const retryForm = new FormData();
-          const retryFileStream = fs.createReadStream(audioPath);
-          retryForm.append('file', retryFileStream, {
-            filename: 'audio.flac',
-            contentType: 'audio/flac'
-          });
-          retryForm.append('model', 'whisper-large-v3-turbo');
+          const retryFile = {
+            buffer: audioBuffer,
+            name: 'audio.flac',
+            type: 'audio/flac'
+          };
+
+          retryForm.append('file', retryFile);
+          retryForm.append('model', 'whisper-large-v3');
           retryForm.append('language', 'auto');
           retryForm.append('response_format', 'text');
-          retryForm.append('temperature', '0.0');
 
-          // Retry the request
           const retryResponse = await fetch('https://api.groq.com/openai/v1/audio/transcriptions', {
             method: 'POST',
             headers: {
-              'Authorization': `Bearer ${process.env.GROQ_API_KEY}`,
-              ...retryForm.getHeaders()
+              'Authorization': `Bearer ${process.env.GROQ_API_KEY}`
             },
-            // @ts-ignore - form-data is compatible with node-fetch
             body: retryForm
           });
 
