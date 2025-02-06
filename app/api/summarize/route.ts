@@ -426,95 +426,33 @@ async function getTranscript(videoId: string): Promise<{ transcript: string; sou
     });
 
     try {
-      // Get video info for title
+      // Get video info using youtube-dl-exec instead of ytdl-core
       logger.info('Fetching video info from YouTube');
       const videoUrl = `https://www.youtube.com/watch?v=${videoId}`;
       logger.debug('Video URL:', { url: videoUrl });
 
-      let videoInfo;
-      try {
-        videoInfo = await ytdl.getInfo(videoUrl, {
-          requestOptions: {
-            headers: {
-              // More browser-like headers without cookies
-              'User-Agent': 'Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36',
-              'Accept': '*/*',
-              'Accept-Language': 'en-US,en;q=0.5',
-              'Connection': 'keep-alive',
-              'Sec-Fetch-Dest': 'empty',
-              'Sec-Fetch-Mode': 'cors',
-              'Sec-Fetch-Site': 'same-origin',
-              'Pragma': 'no-cache',
-              'Cache-Control': 'no-cache',
-            }
-          }
-        }).catch((infoError: YTDLError) => {
-          // Enhanced error logging
-          logger.error('Failed to get video info:', {
-            error: infoError instanceof Error ? {
-              message: infoError.message,
-              stack: infoError.stack,
-              statusCode: infoError.statusCode,
-              cause: infoError.cause,
-              name: infoError.name,
-              raw: infoError
-            } : infoError,
-            videoId,
-            url: videoUrl
-          });
+      const videoInfo = await youtubeDl(videoUrl, {
+        dumpSingleJson: true,
+        noWarnings: true,
+        noCheckCertificates: true,
+        preferFreeFormats: true,
+        addHeader: [
+          'User-Agent:Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36',
+          'Accept:text/html,application/xhtml+xml,application/xml;q=0.9,image/webp,*/*;q=0.8',
+          'Accept-Language:en-US,en;q=0.5',
+          'Connection:keep-alive'
+        ]
+      }) as YoutubeDLResponse;
 
-          // Try to extract more meaningful error information
-          const errorMessage = infoError instanceof Error
-            ? `${infoError.message} (${infoError.name})`
-            : typeof infoError === 'object' && infoError !== null
-              ? JSON.stringify(infoError)
-              : String(infoError);
-
-          throw new Error(`YouTube API Error: ${errorMessage}`);
-        });
-
-        // Validate video info immediately after getting it
-        if (!videoInfo) {
-          throw new Error('No video information received');
-        }
-
-        // Check for specific required properties
-        if (!videoInfo.videoDetails?.title) {
-          throw new Error('Video title not found in response');
-        }
-
-        if (!videoInfo.formats || videoInfo.formats.length === 0) {
-          throw new Error('No video formats available');
-        }
-
-      } catch (ytdlError) {
-        const error = ytdlError as YTDLError;
-        // Enhanced error logging
-        logger.error('ytdl.getInfo failed:', {
-          error: {
-            message: error.message,
-            name: error.name,
-            statusCode: error.statusCode,
-            stack: error.stack,
-            // Add the full error object for debugging
-            raw: error
-          }
-        });
-
-        // Throw a more descriptive error
-        throw new Error(`Failed to fetch video info: ${error.message || 'Unknown error'} (Code: ${error.statusCode || 'unknown'}). Please try again later or check if the video is available.`);
+      if (!videoInfo) {
+        throw new Error('No video information received');
       }
 
-      if (!videoInfo || !videoInfo.videoDetails) {
-        throw new Error('Failed to get video details from YouTube');
-      }
-
-      const title = videoInfo.videoDetails.title;
+      const title = videoInfo.title;
       logger.info('Video info retrieved successfully:', {
         title,
-        duration: videoInfo.videoDetails.lengthSeconds,
-        author: videoInfo.videoDetails.author.name,
-        videoId
+        duration: videoInfo.duration,
+        formats: videoInfo.formats?.length || 0
       });
 
       // Check if OpenAI API is available
