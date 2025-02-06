@@ -11,6 +11,7 @@ import path from 'path';
 import { exec } from 'child_process';
 import { promisify } from 'util';
 import FormData from 'form-data';
+import fetch from 'node-fetch';
 
 const execAsync = promisify(exec);
 
@@ -188,19 +189,80 @@ async function downloadAudio(videoId: string): Promise<string> {
 
 async function transcribeWithWhisper(audioPath: string, groq: Groq): Promise<string> {
   try {
-    const fileStream = fs.createReadStream(audioPath);
+    // Create form data with the audio file
+    const form = new FormData();
+    form.append('file', fs.createReadStream(audioPath));
+    form.append('model', 'whisper-large-v3-turbo');
+    form.append('language', 'auto');
+    form.append('response_format', 'text');
 
-    const completion = await groq.audio.transcriptions.create({
-      file: fileStream,
-      model: "whisper-large-v3-turbo",
-      language: "auto",
-      response_format: "text"
-    });
+    try {
+      // Make a direct fetch request to Groq API
+      const response = await fetch('https://api.groq.com/openai/v1/audio/transcriptions', {
+        method: 'POST',
+        headers: {
+          'Authorization': `Bearer ${process.env.GROQ_API_KEY}`,
+          ...form.getHeaders()
+        },
+        // @ts-ignore - form-data is compatible with node-fetch
+        body: form
+      });
 
-    return typeof completion === 'string' ? completion : JSON.stringify(completion);
+      if (!response.ok) {
+        const errorData = await response.json().catch(() => ({}));
+        console.error('Whisper API Error:', {
+          status: response.status,
+          statusText: response.statusText,
+          details: errorData
+        });
+
+        if (response.status === 429) {
+          const retryAfter = response.headers.get('retry-after') || '60';
+          console.log(`Rate limit hit, waiting ${retryAfter} seconds...`);
+          await new Promise(resolve => setTimeout(resolve, parseInt(retryAfter) * 1000));
+
+          // Create new form for retry (as the old one is consumed)
+          const retryForm = new FormData();
+          retryForm.append('file', fs.createReadStream(audioPath));
+          retryForm.append('model', 'whisper-large-v3-turbo');
+          retryForm.append('language', 'auto');
+          retryForm.append('response_format', 'text');
+
+          // Retry the request
+          const retryResponse = await fetch('https://api.groq.com/openai/v1/audio/transcriptions', {
+            method: 'POST',
+            headers: {
+              'Authorization': `Bearer ${process.env.GROQ_API_KEY}`,
+              ...retryForm.getHeaders()
+            },
+            // @ts-ignore - form-data is compatible with node-fetch
+            body: retryForm
+          });
+
+          if (!retryResponse.ok) {
+            throw new Error(`Retry failed: ${retryResponse.statusText}`);
+          }
+
+          const retryData = await retryResponse.json();
+          return retryData.text;
+        }
+
+        throw new Error(`API request failed: ${response.statusText}`);
+      }
+
+      const data = await response.json();
+      return data.text;
+    } catch (error: any) {
+      console.error('Detailed error:', error);
+      throw new Error(`Whisper transcription failed: ${error.message || 'Unknown error'}`);
+    }
   } finally {
     // Cleanup: Delete the temporary audio file
-    fs.unlinkSync(audioPath);
+    try {
+      fs.unlinkSync(audioPath);
+    } catch (error) {
+      console.error('Failed to delete temporary audio file:', error);
+    }
   }
 }
 
