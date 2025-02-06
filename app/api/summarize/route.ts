@@ -12,6 +12,7 @@ import { exec } from 'child_process';
 import { promisify } from 'util';
 import FormData from 'form-data';
 import fetch from 'node-fetch';
+import type { ClientRequest } from 'http';
 
 const execAsync = promisify(exec);
 
@@ -209,21 +210,43 @@ async function downloadAudio(videoId: string): Promise<string> {
       logger.debug(`Downloading from URL: ${videoUrl}`);
 
       // Get video info first
-      ytdl.getInfo(videoUrl).then(info => {
+      ytdl.getInfo(videoUrl, {
+        requestOptions: {
+          headers: {
+            'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
+            'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,image/webp,*/*;q=0.8',
+            'Accept-Language': 'en-US,en;q=0.5',
+            'Connection': 'keep-alive',
+            'Cookie': 'CONSENT=YES+; Path=/',
+          }
+        },
+        lang: 'en'
+      }).then(info => {
         logger.info('Video info retrieved:', {
           title: info.videoDetails.title,
           duration: info.videoDetails.lengthSeconds
         });
 
-        // Select the best audio format
-        const audioFormats = ytdl.filterFormats(info.formats, 'audioonly');
-        const format = audioFormats.sort((a, b) => {
-          // Prefer opus/webm formats
-          if (a.codecs?.includes('opus') && !b.codecs?.includes('opus')) return -1;
-          if (!a.codecs?.includes('opus') && b.codecs?.includes('opus')) return 1;
-          // Then sort by audio quality (bitrate)
-          return (b.audioBitrate || 0) - (a.audioBitrate || 0);
-        })[0];
+        // Try different format selection strategies
+        let format = null;
+
+        // Strategy 1: Look for opus/webm formats
+        format = info.formats.find(f =>
+          f.codecs?.includes('opus') &&
+          f.container === 'webm' &&
+          f.hasAudio
+        );
+
+        // Strategy 2: Look for any audio-only format with highest quality
+        if (!format) {
+          const audioFormats = ytdl.filterFormats(info.formats, 'audioonly');
+          format = audioFormats.sort((a, b) => (b.audioBitrate || 0) - (a.audioBitrate || 0))[0];
+        }
+
+        // Strategy 3: Fall back to any format with audio
+        if (!format) {
+          format = info.formats.find(f => f.hasAudio);
+        }
 
         if (!format) {
           reject(new Error('No suitable audio format found'));
@@ -275,9 +298,13 @@ async function downloadAudio(videoId: string): Promise<string> {
           });
       }).catch(error => {
         logger.error('Failed to get video info:', {
-          error: error.message,
-          stack: error.stack,
-          videoId
+          error: error instanceof Error ? {
+            message: error.message,
+            stack: error.stack,
+            statusCode: (error as YTDLError).statusCode
+          } : error,
+          videoId,
+          url: videoUrl
         });
         reject(error);
       });
@@ -445,35 +472,71 @@ async function getTranscript(videoId: string): Promise<{ transcript: string; sou
         videoInfo = await ytdl.getInfo(videoUrl, {
           requestOptions: {
             headers: {
-              // Add common headers to avoid 410 errors
               'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
               'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,image/webp,*/*;q=0.8',
               'Accept-Language': 'en-US,en;q=0.5',
               'Connection': 'keep-alive',
+              'Cookie': 'CONSENT=YES+; Path=/',
             }
-          }
+          },
+          // Add these options to make ytdl more resilient
+          lang: 'en'
         }).catch((infoError: YTDLError) => {
+          // Enhanced error logging
           logger.error('Failed to get video info:', {
             error: infoError instanceof Error ? {
               message: infoError.message,
               stack: infoError.stack,
               statusCode: infoError.statusCode,
-              cause: infoError.cause
+              cause: infoError.cause,
+              name: infoError.name,
+              // Add more error properties
+              raw: infoError
             } : infoError,
             videoId,
             url: videoUrl
           });
-          throw infoError;
+
+          // Try to extract more meaningful error information
+          const errorMessage = infoError instanceof Error
+            ? `${infoError.message} (${infoError.name})`
+            : typeof infoError === 'object' && infoError !== null
+              ? JSON.stringify(infoError)
+              : String(infoError);
+
+          throw new Error(`YouTube API Error: ${errorMessage}`);
         });
+
+        // Validate video info immediately after getting it
+        if (!videoInfo) {
+          throw new Error('No video information received');
+        }
+
+        // Check for specific required properties
+        if (!videoInfo.videoDetails?.title) {
+          throw new Error('Video title not found in response');
+        }
+
+        if (!videoInfo.formats || videoInfo.formats.length === 0) {
+          throw new Error('No video formats available');
+        }
+
       } catch (ytdlError) {
         const error = ytdlError as YTDLError;
-        // If ytdl fails, try a different approach or throw a more descriptive error
+        // Enhanced error logging
         logger.error('ytdl.getInfo failed:', {
-          error,
-          statusCode: error.statusCode,
-          message: error.message
+          error: {
+            message: error.message,
+            name: error.name,
+            statusCode: error.statusCode,
+            stack: error.stack,
+            // Add the full error object for debugging
+            raw: error
+          }
         });
-        throw new Error(`Failed to fetch video info: ${error.message || 'Unknown error'} (Status: ${error.statusCode || 'unknown'})`);
+
+        // Throw a more descriptive error
+        throw new Error(`Failed to fetch video info: ${error.message || 'Unknown error'} (Code: ${error.statusCode || 'unknown'}). Please try again later or check if the video is available.`);
       }
 
       if (!videoInfo || !videoInfo.videoDetails) {
