@@ -220,7 +220,7 @@ async function transcribeWithWhisper(audioPath: string, groq: Groq): Promise<str
 
     try {
       // Make a direct fetch request to OpenAI-compatible endpoint
-      const response = await fetch('https://api.groq.com/openai/v1/audio/transcriptions', {
+      const response = await fetch('https://api.groq.com/v1/audio/transcriptions', {
         method: 'POST',
         headers: {
           'Authorization': `Bearer ${process.env.GROQ_API_KEY}`,
@@ -256,7 +256,7 @@ async function transcribeWithWhisper(audioPath: string, groq: Groq): Promise<str
           retryForm.append('temperature', '0.0');
 
           // Retry the request
-          const retryResponse = await fetch('https://api.groq.com/openai/v1/audio/transcriptions', {
+          const retryResponse = await fetch('https://api.groq.com/v1/audio/transcriptions', {
             method: 'POST',
             headers: {
               'Authorization': `Bearer ${process.env.GROQ_API_KEY}`,
