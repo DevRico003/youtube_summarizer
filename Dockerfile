@@ -31,6 +31,7 @@ RUN npm run build
 EXPOSE 3000
 
 # Create volume for SQLite database
+COPY prisma/schema.prisma /app/prisma/schema.prisma
 VOLUME ["/app/prisma"]
 
 # Start the application with direct command
