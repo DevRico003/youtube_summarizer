@@ -191,14 +191,18 @@ async function transcribeWithWhisper(audioPath: string, groq: Groq): Promise<str
   try {
     // Create form data with the audio file
     const form = new FormData();
-    form.append('file', fs.createReadStream(audioPath));
+    const fileStream = fs.createReadStream(audioPath);
+    form.append('file', fileStream, {
+      filename: 'audio.mp3',
+      contentType: 'audio/mpeg'
+    });
     form.append('model', 'whisper-large-v3-turbo');
     form.append('language', 'auto');
     form.append('response_format', 'text');
 
     try {
-      // Make a direct fetch request to Groq API
-      const response = await fetch('https://api.groq.com/openai/v1/audio/transcriptions', {
+      // Make a direct fetch request to OpenAI-compatible endpoint
+      const response = await fetch('https://api.groq.com/v1/audio/transcriptions', {
         method: 'POST',
         headers: {
           'Authorization': `Bearer ${process.env.GROQ_API_KEY}`,
@@ -223,13 +227,17 @@ async function transcribeWithWhisper(audioPath: string, groq: Groq): Promise<str
 
           // Create new form for retry (as the old one is consumed)
           const retryForm = new FormData();
-          retryForm.append('file', fs.createReadStream(audioPath));
+          const retryFileStream = fs.createReadStream(audioPath);
+          retryForm.append('file', retryFileStream, {
+            filename: 'audio.mp3',
+            contentType: 'audio/mpeg'
+          });
           retryForm.append('model', 'whisper-large-v3-turbo');
           retryForm.append('language', 'auto');
           retryForm.append('response_format', 'text');
 
           // Retry the request
-          const retryResponse = await fetch('https://api.groq.com/openai/v1/audio/transcriptions', {
+          const retryResponse = await fetch('https://api.groq.com/v1/audio/transcriptions', {
             method: 'POST',
             headers: {
               'Authorization': `Bearer ${process.env.GROQ_API_KEY}`,
@@ -247,7 +255,7 @@ async function transcribeWithWhisper(audioPath: string, groq: Groq): Promise<str
           return retryData.text;
         }
 
-        throw new Error(`API request failed: ${response.statusText}`);
+        throw new Error(`API request failed: ${response.statusText} (${response.status})`);
       }
 
       const data = await response.json();
