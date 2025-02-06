@@ -344,6 +344,7 @@ async function transcribeWithWhisper(audioPath: string, groq: Groq): Promise<str
 
 async function getTranscript(videoId: string): Promise<{ transcript: string; source: 'youtube' | 'whisper'; title: string }> {
   try {
+    logger.info(`Attempting to fetch YouTube transcript for video ${videoId}`);
     // First try YouTube transcripts
     const transcriptList = await YoutubeTranscript.fetchTranscript(videoId);
 
@@ -358,40 +359,73 @@ async function getTranscript(videoId: string): Promise<{ transcript: string; sou
       title = `YouTube Video Summary`;
     }
 
+    logger.info('Successfully retrieved YouTube transcript');
+    logger.debug('Transcript details:', {
+      title,
+      length: transcriptList.length,
+      firstLine: transcriptList[0]?.text
+    });
+
     return {
       transcript: transcriptList.map(item => item.text).join(' '),
       source: 'youtube',
       title
     };
   } catch (error) {
-    console.log('YouTube transcript not available, falling back to Whisper...');
-
-    // Get video info for title
-    const videoInfo = await ytdl.getInfo(videoId);
-    const title = videoInfo.videoDetails.title;
-
-    // Check if Groq API is available
-    const groq = getGroqClient();
-    if (!groq) {
-      throw new Error('Transcript not available and Groq API key not configured for Whisper fallback.');
-    }
+    logger.info('YouTube transcript not available, falling back to Whisper...', {
+      error: error instanceof Error ? error.message : String(error)
+    });
 
     try {
-      // Download audio
-      const audioPath = await downloadAudio(videoId);
-      console.log('Audio downloaded successfully');
+      // Get video info for title
+      logger.info('Fetching video info from YouTube');
+      const videoInfo = await ytdl.getInfo(videoId);
+      const title = videoInfo.videoDetails.title;
+      logger.debug('Video info retrieved:', {
+        title,
+        duration: videoInfo.videoDetails.lengthSeconds,
+        author: videoInfo.videoDetails.author.name
+      });
 
-      // Transcribe with Whisper
-      const transcript = await transcribeWithWhisper(audioPath, groq);
-      console.log('Transcription completed successfully');
+      // Check if Groq API is available
+      const groq = getGroqClient();
+      if (!groq) {
+        const error = 'Transcript not available and Groq API key not configured for Whisper fallback.';
+        logger.error(error, {});
+        throw new Error(error);
+      }
 
-      return {
-        transcript,
-        source: 'whisper',
-        title
-      };
-    } catch (whisperError) {
-      console.error('Whisper transcription failed:', whisperError);
+      try {
+        // Download audio
+        logger.info('Starting audio download process');
+        const audioPath = await downloadAudio(videoId);
+        logger.info('Audio downloaded successfully', { path: audioPath });
+
+        // Transcribe with Whisper
+        logger.info('Starting Whisper transcription');
+        const transcript = await transcribeWithWhisper(audioPath, groq);
+        logger.info('Transcription completed successfully', {
+          transcriptLength: transcript.length
+        });
+
+        return {
+          transcript,
+          source: 'whisper',
+          title
+        };
+      } catch (whisperError) {
+        logger.error('Whisper transcription failed:', {
+          error: whisperError,
+          videoId,
+          title
+        });
+        throw new Error(`Whisper transcription failed: ${whisperError instanceof Error ? whisperError.message : String(whisperError)}`);
+      }
+    } catch (error) {
+      logger.error('Failed to get transcript:', {
+        error,
+        videoId
+      });
       throw new Error('Failed to get transcript from both YouTube and Whisper. Please ensure the video has subtitles or try again later.');
     }
   }
@@ -416,12 +450,19 @@ export async function POST(req: Request) {
       const { url, language, mode, aiModel = 'gemini' } = await req.json();
       const videoId = extractVideoId(url);
 
+      logger.info('Processing video request', {
+        videoId,
+        language,
+        mode,
+        aiModel
+      });
+
       if (!AI_MODELS[aiModel as keyof typeof AI_MODELS]) {
         throw new Error(`Invalid AI model selected. Please choose from: ${Object.values(MODEL_NAMES).join(', ')}`);
       }
 
       const selectedModel = AI_MODELS[aiModel as keyof typeof AI_MODELS];
-      console.log(`Using ${MODEL_NAMES[aiModel as keyof typeof MODEL_NAMES]} model for generation...`);
+      logger.info(`Using ${MODEL_NAMES[aiModel as keyof typeof MODEL_NAMES]} model for generation...`);
 
       // Check cache first
       const existingSummary = await prisma.summary.findFirst({
@@ -563,18 +604,22 @@ export async function POST(req: Request) {
       }
 
     } catch (error: any) {
-      console.error('Error processing video -', error?.message || 'Unknown error');
+      logger.error('Error processing video:', {
+        error,
+        stack: error?.stack,
+        cause: error?.cause
+      });
 
       await writeProgress({
         type: 'error',
         error: error?.message || 'Failed to process video',
         details: error?.toString() || 'Unknown error'
       }).catch((writeError) => {
-        console.error('Failed to write error progress -', writeError);
+        logger.error('Failed to write error progress:', writeError);
       });
     } finally {
       await writer.close().catch((closeError) => {
-        console.error('Failed to close writer -', closeError);
+        logger.error('Failed to close writer:', closeError);
       });
     }
   })();
