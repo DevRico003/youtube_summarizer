@@ -16,6 +16,10 @@ import fetch from 'node-fetch';
 const execAsync = promisify(exec);
 
 // Add at the top of the file after imports
+type YTDLError = Error & {
+  statusCode?: number;
+};
+
 const logger = {
   info: (message: string, data?: any) => {
     console.log(`[INFO] ${message}`, data ? JSON.stringify(data, null, 2) : '');
@@ -433,22 +437,55 @@ async function getTranscript(videoId: string): Promise<{ transcript: string; sou
     try {
       // Get video info for title
       logger.info('Fetching video info from YouTube');
-      const videoInfo = await ytdl.getInfo(videoId).catch(infoError => {
-        logger.error('Failed to get video info:', {
-          error: infoError instanceof Error ? {
-            message: infoError.message,
-            stack: infoError.stack
-          } : infoError,
-          videoId
+      const videoUrl = `https://www.youtube.com/watch?v=${videoId}`;
+      logger.debug('Video URL:', { url: videoUrl });
+
+      let videoInfo;
+      try {
+        videoInfo = await ytdl.getInfo(videoUrl, {
+          requestOptions: {
+            headers: {
+              // Add common headers to avoid 410 errors
+              'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
+              'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,image/webp,*/*;q=0.8',
+              'Accept-Language': 'en-US,en;q=0.5',
+              'Connection': 'keep-alive',
+            }
+          }
+        }).catch((infoError: YTDLError) => {
+          logger.error('Failed to get video info:', {
+            error: infoError instanceof Error ? {
+              message: infoError.message,
+              stack: infoError.stack,
+              statusCode: infoError.statusCode,
+              cause: infoError.cause
+            } : infoError,
+            videoId,
+            url: videoUrl
+          });
+          throw infoError;
         });
-        throw infoError;
-      });
+      } catch (ytdlError) {
+        const error = ytdlError as YTDLError;
+        // If ytdl fails, try a different approach or throw a more descriptive error
+        logger.error('ytdl.getInfo failed:', {
+          error,
+          statusCode: error.statusCode,
+          message: error.message
+        });
+        throw new Error(`Failed to fetch video info: ${error.message || 'Unknown error'} (Status: ${error.statusCode || 'unknown'})`);
+      }
+
+      if (!videoInfo || !videoInfo.videoDetails) {
+        throw new Error('Failed to get video details from YouTube');
+      }
 
       const title = videoInfo.videoDetails.title;
       logger.info('Video info retrieved successfully:', {
         title,
         duration: videoInfo.videoDetails.lengthSeconds,
-        author: videoInfo.videoDetails.author.name
+        author: videoInfo.videoDetails.author.name,
+        videoId
       });
 
       // Check if OpenAI API is available
