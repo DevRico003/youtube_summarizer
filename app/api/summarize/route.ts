@@ -204,57 +204,79 @@ async function downloadAudio(videoId: string): Promise<string> {
       const videoUrl = `https://www.youtube.com/watch?v=${videoId}`;
       logger.debug(`Downloading from URL: ${videoUrl}`);
 
-      const stream = ytdl(videoUrl, {
-        quality: 'lowestaudio',
-        filter: 'audioonly',
-      });
+      // Get video info first
+      ytdl.getInfo(videoUrl).then(info => {
+        logger.info('Video info retrieved:', {
+          title: info.videoDetails.title,
+          duration: info.videoDetails.lengthSeconds
+        });
 
-      // Add error handler for the stream itself
-      stream.on('error', (error) => {
-        logger.error('Error in ytdl stream:', {
+        // Select the best audio format
+        const audioFormats = ytdl.filterFormats(info.formats, 'audioonly');
+        const format = audioFormats.sort((a, b) => {
+          // Prefer opus/webm formats
+          if (a.codecs?.includes('opus') && !b.codecs?.includes('opus')) return -1;
+          if (!a.codecs?.includes('opus') && b.codecs?.includes('opus')) return 1;
+          // Then sort by audio quality (bitrate)
+          return (b.audioBitrate || 0) - (a.audioBitrate || 0);
+        })[0];
+
+        if (!format) {
+          reject(new Error('No suitable audio format found'));
+          return;
+        }
+
+        logger.info('Selected audio format:', {
+          container: format.container,
+          codec: format.codecs,
+          quality: format.quality,
+          bitrate: format.audioBitrate
+        });
+
+        const stream = ytdl.downloadFromInfo(info, { format });
+
+        stream.on('error', (error) => {
+          logger.error('Error in ytdl stream:', {
+            error: error.message,
+            stack: error.stack,
+            videoId
+          });
+          reject(error);
+        });
+
+        const writeStream = fs.createWriteStream(tempPath);
+
+        writeStream.on('error', (error) => {
+          logger.error('Error in write stream:', {
+            error: error.message,
+            path: tempPath
+          });
+          reject(error);
+        });
+
+        stream.pipe(writeStream)
+          .on('finish', () => {
+            const stats = fs.statSync(tempPath);
+            logger.info(`Audio download completed: ${tempPath}`, {
+              fileSize: stats.size
+            });
+            resolve();
+          })
+          .on('error', (error) => {
+            logger.error('Error during audio download:', {
+              error: error.message,
+              stack: error.stack
+            });
+            reject(error);
+          });
+      }).catch(error => {
+        logger.error('Failed to get video info:', {
           error: error.message,
           stack: error.stack,
           videoId
         });
         reject(error);
       });
-
-      stream.on('info', (info, format) => {
-        logger.info('Stream info received:', {
-          title: info.videoDetails.title,
-          lengthSeconds: info.videoDetails.lengthSeconds,
-          format: format.container,
-          quality: format.quality,
-          audioCodec: format.audioCodec,
-          bitrate: format.audioBitrate
-        });
-      });
-
-      const writeStream = fs.createWriteStream(tempPath);
-
-      writeStream.on('error', (error) => {
-        logger.error('Error in write stream:', {
-          error: error.message,
-          path: tempPath
-        });
-        reject(error);
-      });
-
-      stream.pipe(writeStream)
-        .on('finish', () => {
-          const stats = fs.statSync(tempPath);
-          logger.info(`Audio download completed: ${tempPath}`, {
-            fileSize: stats.size
-          });
-          resolve();
-        })
-        .on('error', (error) => {
-          logger.error('Error during audio download:', {
-            error: error.message,
-            stack: error.stack
-          });
-          reject(error);
-        });
     });
 
     // Verify the temp file exists and has content
@@ -272,13 +294,13 @@ async function downloadAudio(videoId: string): Promise<string> {
     try {
       const { stdout, stderr } = await execAsync(`ffmpeg -i ${tempPath} -ar 16000 -ac 1 -c:a flac ${outputPath}`);
       logger.debug('FFmpeg output:', { stdout, stderr });
-    } catch (ffmpegError) {
+    } catch (error: any) {
       logger.error('FFmpeg conversion failed:', {
-        error: ffmpegError.message,
-        stdout: ffmpegError.stdout,
-        stderr: ffmpegError.stderr
+        error: error.message,
+        stdout: error.stdout,
+        stderr: error.stderr
       });
-      throw ffmpegError;
+      throw error;
     }
 
     // Verify the output file
@@ -467,16 +489,14 @@ async function getTranscript(videoId: string): Promise<{ transcript: string; sou
       logger.info('Video info retrieved successfully:', {
         title,
         duration: videoInfo.videoDetails.lengthSeconds,
-        author: videoInfo.videoDetails.author.name,
-        isLive: videoInfo.videoDetails.isLive,
-        isPrivate: videoInfo.videoDetails.isPrivate
+        author: videoInfo.videoDetails.author.name
       });
 
       // Check if Groq API is available
       const groq = getGroqClient();
       if (!groq) {
         const error = 'Transcript not available and Groq API key not configured for Whisper fallback.';
-        logger.error(error);
+        logger.error(error, { message: error });
         throw new Error(error);
       }
 
@@ -494,13 +514,14 @@ async function getTranscript(videoId: string): Promise<{ transcript: string; sou
         });
 
         return { transcript, source: 'whisper', title };
-      } catch (processingError) {
+      } catch (processingError: unknown) {
         logger.error('Processing error:', {
-          phase: processingError.phase || 'unknown',
+          phase: typeof processingError === 'object' && processingError !== null && 'phase' in processingError ?
+            (processingError as { phase?: string }).phase : 'unknown',
           error: processingError instanceof Error ? {
             message: processingError.message,
             stack: processingError.stack
-          } : processingError
+          } : String(processingError)
         });
         throw processingError;
       }
