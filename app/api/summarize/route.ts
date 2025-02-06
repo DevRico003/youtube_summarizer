@@ -5,7 +5,6 @@ import { extractVideoId, createSummaryPrompt } from '@/lib/youtube';
 import { GoogleGenerativeAI } from "@google/generative-ai";
 import { Groq } from "groq-sdk";
 import OpenAI from 'openai';
-import ytdl from 'ytdl-core';
 import fs from 'fs';
 import path from 'path';
 import { exec } from 'child_process';
@@ -13,6 +12,7 @@ import { promisify } from 'util';
 import FormData from 'form-data';
 import fetch from 'node-fetch';
 import type { ClientRequest } from 'http';
+const ytdl = require("@distube/ytdl-core");
 
 const execAsync = promisify(exec);
 
@@ -20,6 +20,22 @@ const execAsync = promisify(exec);
 type YTDLError = Error & {
   statusCode?: number;
 };
+
+// Add at the top after imports
+interface VideoFormat {
+  audioQuality?: string;
+  qualityLabel?: string;
+  mimeType?: string;
+  hasAudio?: boolean;
+  hasVideo?: boolean;
+  audioBitrate?: number;
+  container?: string;
+  codecs?: string;
+  itag?: number;
+  audioTrack?: {
+    audioIsDefault?: boolean;
+  };
+}
 
 const logger = {
   info: (message: string, data?: any) => {
@@ -204,113 +220,110 @@ async function downloadAudio(videoId: string): Promise<string> {
   try {
     logger.info(`Starting audio download for video ${videoId}`);
 
-    // First download the audio
+    // First validate the video ID
+    if (!ytdl.validateID(videoId)) {
+      throw new Error('Invalid YouTube video ID');
+    }
+
+    const videoUrl = `https://www.youtube.com/watch?v=${videoId}`;
+    logger.debug(`Downloading from URL: ${videoUrl}`);
+
+    // Get video info first with enhanced error handling
+    const info = await ytdl.getBasicInfo(videoUrl).catch((error: any) => {
+      logger.error('Failed to get video info:', {
+        error: error instanceof Error ? {
+          message: error.message,
+          stack: error.stack,
+          statusCode: (error as YTDLError).statusCode
+        } : error,
+        videoId,
+        url: videoUrl
+      });
+      throw error;
+    });
+
+    // Check for private or live content
+    if (info.player_response.videoDetails.isPrivate) {
+      throw new Error("Can't download private content.");
+    }
+    if (info.player_response.videoDetails.isLiveContent) {
+      throw new Error("Can't download live content.");
+    }
+
+    logger.info('Video info retrieved:', {
+      title: info.player_response.videoDetails.title,
+      duration: info.player_response.videoDetails.lengthSeconds
+    });
+
+    // Download the audio
     await new Promise<void>((resolve, reject) => {
-      const videoUrl = `https://www.youtube.com/watch?v=${videoId}`;
-      logger.debug(`Downloading from URL: ${videoUrl}`);
+      // Get the best audio format
+      const audioFormats = info.formats.filter((format: VideoFormat) =>
+        format.audioQuality &&
+        (!format.qualityLabel || format.mimeType?.includes('audio'))
+      ).sort((a: VideoFormat, b: VideoFormat) => {
+        // Prefer formats with both audio and no video
+        if (a.hasAudio && !a.hasVideo && (!b.hasAudio || b.hasVideo)) return -1;
+        if (b.hasAudio && !b.hasVideo && (!a.hasAudio || a.hasVideo)) return 1;
+        // Then sort by audio quality
+        return (b.audioBitrate || 0) - (a.audioBitrate || 0);
+      });
 
-      // Get video info first
-      ytdl.getInfo(videoUrl, {
-        requestOptions: {
-          headers: {
-            'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
-            'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,image/webp,*/*;q=0.8',
-            'Accept-Language': 'en-US,en;q=0.5',
-            'Connection': 'keep-alive',
-            'Cookie': 'CONSENT=YES+; Path=/',
-          }
-        },
-        lang: 'en'
-      }).then(info => {
-        logger.info('Video info retrieved:', {
-          title: info.videoDetails.title,
-          duration: info.videoDetails.lengthSeconds
-        });
+      if (!audioFormats.length) {
+        reject(new Error('No suitable audio format found'));
+        return;
+      }
 
-        // Try different format selection strategies
-        let format = null;
+      const format = audioFormats[0];
+      logger.info('Selected audio format:', {
+        container: format.container,
+        codec: format.codecs,
+        quality: format.audioQuality,
+        bitrate: format.audioBitrate
+      });
 
-        // Strategy 1: Look for opus/webm formats
-        format = info.formats.find(f =>
-          f.codecs?.includes('opus') &&
-          f.container === 'webm' &&
-          f.hasAudio
-        );
+      const stream = ytdl(videoUrl, {
+        quality: format.itag,
+        filter: (format: any) => format.audioTrack ? format.audioTrack.audioIsDefault : format,
+      });
 
-        // Strategy 2: Look for any audio-only format with highest quality
-        if (!format) {
-          const audioFormats = ytdl.filterFormats(info.formats, 'audioonly');
-          format = audioFormats.sort((a, b) => (b.audioBitrate || 0) - (a.audioBitrate || 0))[0];
-        }
-
-        // Strategy 3: Fall back to any format with audio
-        if (!format) {
-          format = info.formats.find(f => f.hasAudio);
-        }
-
-        if (!format) {
-          reject(new Error('No suitable audio format found'));
-          return;
-        }
-
-        logger.info('Selected audio format:', {
-          container: format.container,
-          codec: format.codecs,
-          quality: format.quality,
-          bitrate: format.audioBitrate
-        });
-
-        const stream = ytdl.downloadFromInfo(info, { format });
-
-        stream.on('error', (error) => {
-          logger.error('Error in ytdl stream:', {
-            error: error.message,
-            stack: error.stack,
-            videoId
-          });
-          reject(error);
-        });
-
-        const writeStream = fs.createWriteStream(tempPath);
-
-        writeStream.on('error', (error) => {
-          logger.error('Error in write stream:', {
-            error: error.message,
-            path: tempPath
-          });
-          reject(error);
-        });
-
-        stream.pipe(writeStream)
-          .on('finish', () => {
-            const stats = fs.statSync(tempPath);
-            logger.info(`Audio download completed: ${tempPath}`, {
-              fileSize: stats.size
-            });
-            resolve();
-          })
-          .on('error', (error) => {
-            logger.error('Error during audio download:', {
-              error: error.message,
-              stack: error.stack
-            });
-            reject(error);
-          });
-      }).catch(error => {
-        logger.error('Failed to get video info:', {
-          error: error instanceof Error ? {
-            message: error.message,
-            stack: error.stack,
-            statusCode: (error as YTDLError).statusCode
-          } : error,
-          videoId,
-          url: videoUrl
+      stream.on('error', (error: Error) => {
+        logger.error('Error in ytdl stream:', {
+          error: error.message,
+          stack: error.stack,
+          videoId
         });
         reject(error);
       });
+
+      const writeStream = fs.createWriteStream(tempPath);
+
+      writeStream.on('error', (error: Error) => {
+        logger.error('Error in write stream:', {
+          error: error.message,
+          path: tempPath
+        });
+        reject(error);
+      });
+
+      stream.pipe(writeStream)
+        .on('finish', () => {
+          const stats = fs.statSync(tempPath);
+          logger.info(`Audio download completed: ${tempPath}`, {
+            fileSize: stats.size
+          });
+          resolve();
+        })
+        .on('error', (error: Error) => {
+          logger.error('Error during audio download:', {
+            error: error.message,
+            stack: error.stack
+          });
+          reject(error);
+        });
     });
 
-    // Verify the temp file exists and has content
+    // Rest of the function (file verification, conversion, etc.) remains the same
     const tempStats = fs.statSync(tempPath);
     if (tempStats.size === 0) {
       throw new Error('Downloaded audio file is empty');
