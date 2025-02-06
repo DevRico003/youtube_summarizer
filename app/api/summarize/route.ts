@@ -6,9 +6,41 @@ import { GoogleGenerativeAI } from "@google/generative-ai";
 import { Groq } from "groq-sdk";
 import OpenAI from 'openai';
 
-const genAI = new GoogleGenerativeAI(process.env.GEMINI_API_KEY || '');
-const groq = new Groq({ apiKey: process.env.GROQ_API_KEY });
-const openai = new OpenAI({ apiKey: process.env.OPENAI_API_KEY });
+// Initialize API clients only when needed
+function getGeminiClient() {
+  const apiKey = process.env.GEMINI_API_KEY;
+  if (!apiKey) return null;
+  const genAI = new GoogleGenerativeAI(apiKey);
+  return genAI;
+}
+
+function getGroqClient() {
+  const apiKey = process.env.GROQ_API_KEY;
+  if (!apiKey) return null;
+  return new Groq({ apiKey });
+}
+
+function getOpenAIClient() {
+  const apiKey = process.env.OPENAI_API_KEY;
+  if (!apiKey) return null;
+  return new OpenAI({ apiKey });
+}
+
+// Helper function to get user-friendly model names
+const MODEL_NAMES = {
+  gemini: "Google Gemini",
+  groq: "Groq",
+  gpt4: "GPT-4"
+};
+
+// Helper function to check API key availability
+function checkApiKeyAvailability() {
+  return {
+    gemini: !!process.env.GEMINI_API_KEY,
+    groq: !!process.env.GROQ_API_KEY,
+    gpt4: !!process.env.OPENAI_API_KEY
+  };
+}
 
 // Helper function to clean model outputs
 function cleanModelOutput(text: string): string {
@@ -41,9 +73,13 @@ function cleanModelOutput(text: string): string {
 const AI_MODELS = {
   gemini: {
     name: "gemini",
-    model: genAI.getGenerativeModel({ model: "gemini-2.0-flash-001" }),
     async generateContent(prompt: string) {
-      const result = await this.model.generateContent(prompt);
+      const genAI = getGeminiClient();
+      if (!genAI) {
+        throw new Error(`${MODEL_NAMES.gemini} API key is not configured. Please add your API key in the settings or choose a different model.`);
+      }
+      const model = genAI.getGenerativeModel({ model: "gemini-2.0-flash-001" });
+      const result = await model.generateContent(prompt);
       const response = await result.response;
       return cleanModelOutput(response.text());
     }
@@ -52,6 +88,10 @@ const AI_MODELS = {
     name: "groq",
     model: "llama-3.3-70b-versatile",
     async generateContent(prompt: string) {
+      const groq = getGroqClient();
+      if (!groq) {
+        throw new Error(`${MODEL_NAMES.groq} API key is not configured. Please add your API key in the settings or choose a different model.`);
+      }
       const completion = await groq.chat.completions.create({
         messages: [
           {
@@ -74,6 +114,10 @@ const AI_MODELS = {
     name: "gpt4",
     model: "gpt-4o-mini",
     async generateContent(prompt: string) {
+      const openai = getOpenAIClient();
+      if (!openai) {
+        throw new Error(`${MODEL_NAMES.gpt4} API key is not configured. Please add your API key in the settings or choose a different model.`);
+      }
       const completion = await openai.chat.completions.create({
         messages: [
           {
@@ -149,6 +193,11 @@ async function getTranscript(videoId: string): Promise<{ transcript: string; sou
   }
 }
 
+// Add new endpoint to check API key availability
+export async function GET(req: Request) {
+  return NextResponse.json(checkApiKeyAvailability());
+}
+
 export async function POST(req: Request) {
   const encoder = new TextEncoder();
   const stream = new TransformStream();
@@ -164,11 +213,11 @@ export async function POST(req: Request) {
       const videoId = extractVideoId(url);
 
       if (!AI_MODELS[aiModel as keyof typeof AI_MODELS]) {
-        throw new Error('Invalid AI model selected');
+        throw new Error(`Invalid AI model selected. Please choose from: ${Object.values(MODEL_NAMES).join(', ')}`);
       }
 
       const selectedModel = AI_MODELS[aiModel as keyof typeof AI_MODELS];
-      console.log(`Using ${selectedModel.name} model for generation...`);
+      console.log(`Using ${MODEL_NAMES[aiModel as keyof typeof MODEL_NAMES]} model for generation...`);
 
       // Check cache first
       const existingSummary = await prisma.summary.findFirst({

@@ -2,12 +2,13 @@
 
 import { useState } from "react"
 import { useRouter } from "next/navigation"
-import { Youtube, Headphones, Bot, Cpu } from "lucide-react"
+import { Youtube, Headphones } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
 import { AVAILABLE_LANGUAGES, extractVideoId } from "@/lib/youtube"
+import { ModelSelector } from "@/components/ModelSelector"
 
 export default function Home() {
   const [url, setUrl] = useState("")
@@ -84,31 +85,10 @@ export default function Home() {
               </Select>
             </div>
 
-            <Select value={aiModel} onValueChange={(value) => setAiModel(value as "gemini" | "groq" | "gpt4")}>
-              <SelectTrigger>
-                <SelectValue placeholder="Select AI Model" />
-              </SelectTrigger>
-              <SelectContent>
-                <SelectItem value="gemini">
-                  <div className="flex items-center">
-                    <Bot className="mr-2 h-4 w-4" />
-                    <span>Google Gemini 2.0 Flash</span>
-                  </div>
-                </SelectItem>
-                <SelectItem value="groq">
-                  <div className="flex items-center">
-                    <Cpu className="mr-2 h-4 w-4" />
-                    <span>Groq (Llama 70B)</span>
-                  </div>
-                </SelectItem>
-                <SelectItem value="gpt4">
-                  <div className="flex items-center">
-                    <Bot className="mr-2 h-4 w-4" />
-                    <span>GPT-4o-mini</span>
-                  </div>
-                </SelectItem>
-              </SelectContent>
-            </Select>
+            <ModelSelector
+              selectedModel={aiModel}
+              onModelChange={(model) => setAiModel(model as "gemini" | "groq" | "gpt4")}
+            />
 
             <Button type="submit" className="w-full">
               Generate Summary

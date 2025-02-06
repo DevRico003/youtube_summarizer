@@ -10,6 +10,10 @@ A modern Next.js-based tool for AI-powered YouTube video summarization. This app
   - Google Gemini 2.0 Flash (Fast and efficient)
   - Groq with Llama 70B (High accuracy)
   - GPT-4o-mini (Balanced performance)
+- **Flexible API Key Requirements**:
+  - Only one API key is required to start using the application
+  - Models become available based on the API keys you provide
+  - Mix and match different models as needed
 - **Multilingual Support**:
   - Generate summaries in English and German
   - Clean formatting in both languages
@@ -75,6 +79,8 @@ yarn install
 
 3. Create a `.env` file in the root directory:
 ```env
+# You only need to add the API keys for the models you want to use
+# At least one API key is required
 GEMINI_API_KEY="your-gemini-api-key"
 GROQ_API_KEY="your-groq-api-key"
 OPENAI_API_KEY="your-openai-api-key"
@@ -96,6 +102,15 @@ yarn dev
 The application will be available at [http://localhost:3000](http://localhost:3000)
 
 ## 🔧 Configuration
+
+### API Key Configuration
+
+The application is designed to work with partial API key configurations:
+
+- You only need to provide API keys for the models you want to use
+- The UI will automatically show which models are available based on your API keys
+- You can start with just one API key and add more later
+- Models without API keys will be disabled in the interface
 
 ### Database Setup
 The application uses Prisma with SQLite for data persistence. The configuration is defined in `prisma/schema.prisma`:
@@ -121,7 +136,7 @@ npx prisma db push
 
 ### Obtaining API Keys
 
-1. **Google Gemini API Key**:
+1. **Google Gemini API Key** (Good starting choice - free tier available):
    - Visit [Google AI Studio](https://aistudio.google.com/app/apikey)
    - Create a new project if needed
    - Generate an API key
