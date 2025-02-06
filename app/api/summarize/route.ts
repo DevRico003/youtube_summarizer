@@ -206,24 +206,29 @@ async function downloadAudio(videoId: string): Promise<string> {
 
 async function transcribeWithWhisper(audioPath: string, groq: Groq): Promise<string> {
   try {
-    // Create form data with the audio file
+    console.log('Starting transcription process...');
+
+    // Read file as buffer
+    const audioBuffer = await fs.promises.readFile(audioPath);
+    console.log(`Read audio file of size: ${audioBuffer.length} bytes`);
+
+    // Create form data
     const form = new FormData();
-    const audioBuffer = fs.readFileSync(audioPath);
 
-    // Create a Blob-like object that Groq can handle
-    const file = {
-      buffer: audioBuffer,
-      name: 'audio.flac',
-      type: 'audio/flac'
-    };
+    // Create a proper file object
+    const file = new Blob([audioBuffer], { type: 'audio/flac' });
+    form.append('file', file, {
+      filename: 'audio.flac',
+      contentType: 'audio/flac'
+    });
 
-    form.append('file', file);
+    // Add required parameters
     form.append('model', 'whisper-large-v3');
     form.append('language', 'auto');
     form.append('response_format', 'text');
 
     try {
-      // Make request to Groq API
+      console.log('Sending request to Groq API...');
       const response = await fetch('https://api.groq.com/openai/v1/audio/transcriptions', {
         method: 'POST',
         headers: {
@@ -232,61 +237,43 @@ async function transcribeWithWhisper(audioPath: string, groq: Groq): Promise<str
         body: form
       });
 
+      console.log(`Received response with status: ${response.status}`);
+      const responseText = await response.text();
+      console.log('Response body:', responseText);
+
       if (!response.ok) {
-        const errorData = await response.json().catch(() => ({}));
-        console.error('Whisper API Error:', {
-          status: response.status,
-          statusText: response.statusText,
-          details: errorData
-        });
-
-        if (response.status === 429) {
-          const retryAfter = response.headers.get('retry-after') || '60';
-          console.log(`Rate limit hit, waiting ${retryAfter} seconds...`);
-          await new Promise(resolve => setTimeout(resolve, parseInt(retryAfter) * 1000));
-
-          // Retry with new form
-          const retryForm = new FormData();
-          const retryFile = {
-            buffer: audioBuffer,
-            name: 'audio.flac',
-            type: 'audio/flac'
-          };
-
-          retryForm.append('file', retryFile);
-          retryForm.append('model', 'whisper-large-v3');
-          retryForm.append('language', 'auto');
-          retryForm.append('response_format', 'text');
-
-          const retryResponse = await fetch('https://api.groq.com/openai/v1/audio/transcriptions', {
-            method: 'POST',
-            headers: {
-              'Authorization': `Bearer ${process.env.GROQ_API_KEY}`
-            },
-            body: retryForm
-          });
-
-          if (!retryResponse.ok) {
-            throw new Error(`Retry failed: ${retryResponse.statusText}`);
-          }
-
-          const retryData = await retryResponse.json();
-          return retryData.text;
+        let errorMessage = `API request failed: ${response.statusText} (${response.status})`;
+        try {
+          const errorData = JSON.parse(responseText);
+          errorMessage += ` - ${JSON.stringify(errorData)}`;
+        } catch (e) {
+          // If JSON parsing fails, use the raw text
+          errorMessage += ` - ${responseText}`;
         }
-
-        throw new Error(`API request failed: ${response.statusText} (${response.status})`);
+        throw new Error(errorMessage);
       }
 
-      const data = await response.json();
-      return data.text;
+      try {
+        const data = JSON.parse(responseText);
+        return data.text;
+      } catch (e) {
+        // If the response is not JSON, assume it's plain text
+        return responseText;
+      }
+
     } catch (error: any) {
-      console.error('Detailed error:', error);
+      console.error('Detailed transcription error:', {
+        message: error.message,
+        stack: error.stack,
+        cause: error.cause
+      });
       throw new Error(`Whisper transcription failed: ${error.message || 'Unknown error'}`);
     }
   } finally {
     // Cleanup: Delete the temporary audio file
     try {
-      fs.unlinkSync(audioPath);
+      await fs.promises.unlink(audioPath);
+      console.log('Cleaned up temporary audio file');
     } catch (error) {
       console.error('Failed to delete temporary audio file:', error);
     }
