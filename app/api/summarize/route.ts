@@ -13,6 +13,7 @@ import FormData from 'form-data';
 import fetch from 'node-fetch';
 import type { ClientRequest } from 'http';
 const ytdl = require("@distube/ytdl-core");
+import youtubeDl from 'youtube-dl-exec';
 
 const execAsync = promisify(exec);
 
@@ -35,6 +36,14 @@ interface VideoFormat {
   audioTrack?: {
     audioIsDefault?: boolean;
   };
+}
+
+// Add after the VideoFormat interface
+interface YoutubeDLResponse {
+  title: string;
+  duration: number;
+  formats: any[];
+  _filename?: string;
 }
 
 const logger = {
@@ -219,164 +228,92 @@ async function downloadAudio(videoId: string): Promise<string> {
 
   try {
     logger.info(`Starting audio download for video ${videoId}`);
-
-    // First validate the video ID
-    if (!ytdl.validateID(videoId)) {
-      throw new Error('Invalid YouTube video ID');
-    }
-
     const videoUrl = `https://www.youtube.com/watch?v=${videoId}`;
     logger.debug(`Downloading from URL: ${videoUrl}`);
 
-    // Get video info first with enhanced error handling
-    const info = await ytdl.getBasicInfo(videoUrl).catch((error: any) => {
-      logger.error('Failed to get video info:', {
+    try {
+      // First get video info to check format availability
+      logger.info('Getting video formats...');
+      const videoInfo = await youtubeDl(videoUrl, {
+        dumpSingleJson: true,
+        noWarnings: true,
+        preferFreeFormats: true
+      }) as YoutubeDLResponse;
+
+      if (!videoInfo) {
+        throw new Error('Failed to get video information');
+      }
+
+      logger.info('Video info retrieved:', {
+        title: videoInfo.title,
+        duration: videoInfo.duration,
+        formats: videoInfo.formats?.length || 0
+      });
+
+      // Download best audio format
+      logger.info('Downloading audio...');
+      await youtubeDl(videoUrl, {
+        output: tempPath,
+        extractAudio: true,
+        audioFormat: 'mp3',
+        audioQuality: 0, // Best quality
+        noWarnings: true,
+        preferFreeFormats: true
+      });
+
+      // Verify the downloaded file
+      const tempStats = fs.statSync(tempPath);
+      if (tempStats.size === 0) {
+        throw new Error('Downloaded audio file is empty');
+      }
+      logger.info('Temp file verification:', {
+        size: tempStats.size,
+        path: tempPath
+      });
+
+      // Convert to optimal format for Whisper
+      logger.info('Converting audio to FLAC format...');
+      try {
+        const { stdout, stderr } = await execAsync(`ffmpeg -i ${tempPath} -ar 16000 -ac 1 -c:a flac ${outputPath}`);
+        logger.debug('FFmpeg output:', { stdout, stderr });
+      } catch (error: any) {
+        logger.error('FFmpeg conversion failed:', {
+          error: error.message,
+          stdout: error.stdout,
+          stderr: error.stderr
+        });
+        throw error;
+      }
+
+      // Verify the output file
+      const stats = fs.statSync(outputPath);
+      if (stats.size === 0) {
+        throw new Error('Converted FLAC file is empty');
+      }
+      logger.info('Audio conversion completed successfully:', {
+        inputSize: tempStats.size,
+        outputSize: stats.size,
+        outputPath
+      });
+
+      // Clean up temp file
+      fs.unlinkSync(tempPath);
+      logger.info('Temporary audio file cleaned up');
+
+      return outputPath;
+
+    } catch (error) {
+      logger.error('Error downloading with youtube-dl:', {
         error: error instanceof Error ? {
           message: error.message,
-          stack: error.stack,
-          statusCode: (error as YTDLError).statusCode
+          stack: error.stack
         } : error,
         videoId,
         url: videoUrl
       });
       throw error;
-    });
-
-    // Check for private or live content
-    if (info.player_response.videoDetails.isPrivate) {
-      throw new Error("Can't download private content.");
-    }
-    if (info.player_response.videoDetails.isLiveContent) {
-      throw new Error("Can't download live content.");
     }
 
-    logger.info('Video info retrieved:', {
-      title: info.player_response.videoDetails.title,
-      duration: info.player_response.videoDetails.lengthSeconds
-    });
-
-    // Download the audio
-    await new Promise<void>((resolve, reject) => {
-      // Get the best audio format
-      const audioFormats = info.formats.filter((format: VideoFormat) =>
-        format.audioQuality &&
-        (!format.qualityLabel || format.mimeType?.includes('audio'))
-      ).sort((a: VideoFormat, b: VideoFormat) => {
-        // Prefer formats with both audio and no video
-        if (a.hasAudio && !a.hasVideo && (!b.hasAudio || b.hasVideo)) return -1;
-        if (b.hasAudio && !b.hasVideo && (!a.hasAudio || a.hasVideo)) return 1;
-        // Then sort by audio quality
-        return (b.audioBitrate || 0) - (a.audioBitrate || 0);
-      });
-
-      if (!audioFormats.length) {
-        reject(new Error('No suitable audio format found'));
-        return;
-      }
-
-      const format = audioFormats[0];
-      logger.info('Selected audio format:', {
-        container: format.container,
-        codec: format.codecs,
-        quality: format.audioQuality,
-        bitrate: format.audioBitrate
-      });
-
-      const stream = ytdl(videoUrl, {
-        quality: format.itag,
-        filter: (format: any) => format.audioTrack ? format.audioTrack.audioIsDefault : format,
-        requestOptions: {
-          headers: {
-            // More browser-like headers without cookies
-            'User-Agent': 'Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36',
-            'Accept': '*/*',
-            'Accept-Language': 'en-US,en;q=0.5',
-            'Connection': 'keep-alive',
-            'Sec-Fetch-Dest': 'empty',
-            'Sec-Fetch-Mode': 'cors',
-            'Sec-Fetch-Site': 'same-origin',
-            'Pragma': 'no-cache',
-            'Cache-Control': 'no-cache',
-          }
-        }
-      });
-
-      stream.on('error', (error: Error) => {
-        logger.error('Error in ytdl stream:', {
-          error: error.message,
-          stack: error.stack,
-          videoId
-        });
-        reject(error);
-      });
-
-      const writeStream = fs.createWriteStream(tempPath);
-
-      writeStream.on('error', (error: Error) => {
-        logger.error('Error in write stream:', {
-          error: error.message,
-          path: tempPath
-        });
-        reject(error);
-      });
-
-      stream.pipe(writeStream)
-        .on('finish', () => {
-          const stats = fs.statSync(tempPath);
-          logger.info(`Audio download completed: ${tempPath}`, {
-            fileSize: stats.size
-          });
-          resolve();
-        })
-        .on('error', (error: Error) => {
-          logger.error('Error during audio download:', {
-            error: error.message,
-            stack: error.stack
-          });
-          reject(error);
-        });
-    });
-
-    // Rest of the function (file verification, conversion, etc.) remains the same
-    const tempStats = fs.statSync(tempPath);
-    if (tempStats.size === 0) {
-      throw new Error('Downloaded audio file is empty');
-    }
-    logger.info('Temp file verification:', {
-      size: tempStats.size,
-      path: tempPath
-    });
-
-    // Convert to optimal format for Whisper
-    logger.info('Converting audio to FLAC format...');
-    try {
-      const { stdout, stderr } = await execAsync(`ffmpeg -i ${tempPath} -ar 16000 -ac 1 -c:a flac ${outputPath}`);
-      logger.debug('FFmpeg output:', { stdout, stderr });
-    } catch (error: any) {
-      logger.error('FFmpeg conversion failed:', {
-        error: error.message,
-        stdout: error.stdout,
-        stderr: error.stderr
-      });
-      throw error;
-    }
-
-    // Verify the output file
-    const stats = fs.statSync(outputPath);
-    if (stats.size === 0) {
-      throw new Error('Converted FLAC file is empty');
-    }
-    logger.info('Audio conversion completed successfully:', {
-      inputSize: tempStats.size,
-      outputSize: stats.size,
-      outputPath
-    });
-
-    // Clean up temp file
-    fs.unlinkSync(tempPath);
-    logger.info('Temporary MP3 file cleaned up');
-
-    return outputPath;
   } catch (error) {
     logger.error('Error in downloadAudio:', {
       error: error instanceof Error ? {
@@ -391,9 +328,9 @@ async function downloadAudio(videoId: string): Promise<string> {
     if (fs.existsSync(tempPath)) {
       try {
         fs.unlinkSync(tempPath);
-        logger.info('Cleaned up temp MP3 file after error');
+        logger.info('Cleaned up temp file after error');
       } catch (cleanupError) {
-        logger.error('Failed to cleanup temp MP3 file:', cleanupError);
+        logger.error('Failed to cleanup temp file:', cleanupError);
       }
     }
     if (fs.existsSync(outputPath)) {

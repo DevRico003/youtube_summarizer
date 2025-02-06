@@ -31,6 +31,7 @@
     "react-markdown": "^9.0.3",
     "tailwind-merge": "^3.0.1",
     "tailwindcss-animate": "^1.0.7",
+    "youtube-dl-exec": "^3.0.15",
     "youtube-transcript": "^1.2.1",
     "ytdl-core": "^4.11.5"
   },
