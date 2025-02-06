@@ -209,8 +209,20 @@ async function downloadAudio(videoId: string): Promise<string> {
         filter: 'audioonly',
       });
 
+      // Add error handler for the stream itself
+      stream.on('error', (error) => {
+        logger.error('Error in ytdl stream:', {
+          error: error.message,
+          stack: error.stack,
+          videoId
+        });
+        reject(error);
+      });
+
       stream.on('info', (info, format) => {
-        logger.debug('Stream info:', {
+        logger.info('Stream info received:', {
+          title: info.videoDetails.title,
+          lengthSeconds: info.videoDetails.lengthSeconds,
           format: format.container,
           quality: format.quality,
           audioCodec: format.audioCodec,
@@ -218,27 +230,66 @@ async function downloadAudio(videoId: string): Promise<string> {
         });
       });
 
-      stream.pipe(fs.createWriteStream(tempPath))
+      const writeStream = fs.createWriteStream(tempPath);
+
+      writeStream.on('error', (error) => {
+        logger.error('Error in write stream:', {
+          error: error.message,
+          path: tempPath
+        });
+        reject(error);
+      });
+
+      stream.pipe(writeStream)
         .on('finish', () => {
-          logger.info(`Audio download completed: ${tempPath}`);
+          const stats = fs.statSync(tempPath);
+          logger.info(`Audio download completed: ${tempPath}`, {
+            fileSize: stats.size
+          });
           resolve();
         })
         .on('error', (error) => {
-          logger.error('Error during audio download:', error);
+          logger.error('Error during audio download:', {
+            error: error.message,
+            stack: error.stack
+          });
           reject(error);
         });
     });
 
+    // Verify the temp file exists and has content
+    const tempStats = fs.statSync(tempPath);
+    if (tempStats.size === 0) {
+      throw new Error('Downloaded audio file is empty');
+    }
+    logger.info('Temp file verification:', {
+      size: tempStats.size,
+      path: tempPath
+    });
+
     // Convert to optimal format for Whisper
     logger.info('Converting audio to FLAC format...');
-    await execAsync(`ffmpeg -i ${tempPath} -ar 16000 -ac 1 -c:a flac ${outputPath}`);
-    logger.info('Audio conversion completed');
+    try {
+      const { stdout, stderr } = await execAsync(`ffmpeg -i ${tempPath} -ar 16000 -ac 1 -c:a flac ${outputPath}`);
+      logger.debug('FFmpeg output:', { stdout, stderr });
+    } catch (ffmpegError) {
+      logger.error('FFmpeg conversion failed:', {
+        error: ffmpegError.message,
+        stdout: ffmpegError.stdout,
+        stderr: ffmpegError.stderr
+      });
+      throw ffmpegError;
+    }
 
     // Verify the output file
     const stats = fs.statSync(outputPath);
-    logger.debug('Output file details:', {
-      size: stats.size,
-      path: outputPath
+    if (stats.size === 0) {
+      throw new Error('Converted FLAC file is empty');
+    }
+    logger.info('Audio conversion completed successfully:', {
+      inputSize: tempStats.size,
+      outputSize: stats.size,
+      outputPath
     });
 
     // Clean up temp file
@@ -247,10 +298,32 @@ async function downloadAudio(videoId: string): Promise<string> {
 
     return outputPath;
   } catch (error) {
-    logger.error('Error in downloadAudio:', error);
+    logger.error('Error in downloadAudio:', {
+      error: error instanceof Error ? {
+        message: error.message,
+        stack: error.stack
+      } : error,
+      videoId,
+      tempPath,
+      outputPath
+    });
     // Clean up any files in case of error
-    if (fs.existsSync(tempPath)) fs.unlinkSync(tempPath);
-    if (fs.existsSync(outputPath)) fs.unlinkSync(outputPath);
+    if (fs.existsSync(tempPath)) {
+      try {
+        fs.unlinkSync(tempPath);
+        logger.info('Cleaned up temp MP3 file after error');
+      } catch (cleanupError) {
+        logger.error('Failed to cleanup temp MP3 file:', cleanupError);
+      }
+    }
+    if (fs.existsSync(outputPath)) {
+      try {
+        fs.unlinkSync(outputPath);
+        logger.info('Cleaned up FLAC file after error');
+      } catch (cleanupError) {
+        logger.error('Failed to cleanup FLAC file:', cleanupError);
+      }
+    }
     throw error;
   }
 }
@@ -379,54 +452,67 @@ async function getTranscript(videoId: string): Promise<{ transcript: string; sou
     try {
       // Get video info for title
       logger.info('Fetching video info from YouTube');
-      const videoInfo = await ytdl.getInfo(videoId);
+      const videoInfo = await ytdl.getInfo(videoId).catch(infoError => {
+        logger.error('Failed to get video info:', {
+          error: infoError instanceof Error ? {
+            message: infoError.message,
+            stack: infoError.stack
+          } : infoError,
+          videoId
+        });
+        throw infoError;
+      });
+
       const title = videoInfo.videoDetails.title;
-      logger.debug('Video info retrieved:', {
+      logger.info('Video info retrieved successfully:', {
         title,
         duration: videoInfo.videoDetails.lengthSeconds,
-        author: videoInfo.videoDetails.author.name
+        author: videoInfo.videoDetails.author.name,
+        isLive: videoInfo.videoDetails.isLive,
+        isPrivate: videoInfo.videoDetails.isPrivate
       });
 
       // Check if Groq API is available
       const groq = getGroqClient();
       if (!groq) {
         const error = 'Transcript not available and Groq API key not configured for Whisper fallback.';
-        logger.error(error, {});
+        logger.error(error);
         throw new Error(error);
       }
 
+      // Download and transcribe
       try {
-        // Download audio
-        logger.info('Starting audio download process');
         const audioPath = await downloadAudio(videoId);
-        logger.info('Audio downloaded successfully', { path: audioPath });
+        logger.info('Audio downloaded successfully', {
+          path: audioPath,
+          fileStats: fs.statSync(audioPath)
+        });
 
-        // Transcribe with Whisper
-        logger.info('Starting Whisper transcription');
         const transcript = await transcribeWithWhisper(audioPath, groq);
         logger.info('Transcription completed successfully', {
           transcriptLength: transcript.length
         });
 
-        return {
-          transcript,
-          source: 'whisper',
-          title
-        };
-      } catch (whisperError) {
-        logger.error('Whisper transcription failed:', {
-          error: whisperError,
-          videoId,
-          title
+        return { transcript, source: 'whisper', title };
+      } catch (processingError) {
+        logger.error('Processing error:', {
+          phase: processingError.phase || 'unknown',
+          error: processingError instanceof Error ? {
+            message: processingError.message,
+            stack: processingError.stack
+          } : processingError
         });
-        throw new Error(`Whisper transcription failed: ${whisperError instanceof Error ? whisperError.message : String(whisperError)}`);
+        throw processingError;
       }
     } catch (error) {
       logger.error('Failed to get transcript:', {
-        error,
+        error: error instanceof Error ? {
+          message: error.message,
+          stack: error.stack
+        } : error,
         videoId
       });
-      throw new Error('Failed to get transcript from both YouTube and Whisper. Please ensure the video has subtitles or try again later.');
+      throw new Error(`Failed to process video: ${error instanceof Error ? error.message : String(error)}`);
     }
   }
 }
