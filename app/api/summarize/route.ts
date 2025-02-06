@@ -173,18 +173,35 @@ async function splitTranscriptIntoChunks(transcript: string, chunkSize: number =
 }
 
 async function downloadAudio(videoId: string): Promise<string> {
-  const outputPath = path.join('/tmp', `${videoId}.mp3`);
+  const tempPath = path.join('/tmp', `${videoId}_temp.mp3`);
+  const outputPath = path.join('/tmp', `${videoId}.flac`);
 
-  return new Promise((resolve, reject) => {
-    const videoUrl = `https://www.youtube.com/watch?v=${videoId}`;
-    ytdl(videoUrl, {
-      quality: 'lowestaudio',
-      filter: 'audioonly',
-    })
-    .pipe(fs.createWriteStream(outputPath))
-    .on('finish', () => resolve(outputPath))
-    .on('error', reject);
-  });
+  try {
+    // First download the audio
+    await new Promise<void>((resolve, reject) => {
+      const videoUrl = `https://www.youtube.com/watch?v=${videoId}`;
+      ytdl(videoUrl, {
+        quality: 'lowestaudio',
+        filter: 'audioonly',
+      })
+      .pipe(fs.createWriteStream(tempPath))
+      .on('finish', () => resolve())
+      .on('error', reject);
+    });
+
+    // Convert to optimal format for Whisper using ffmpeg
+    await execAsync(`ffmpeg -i ${tempPath} -ar 16000 -ac 1 -c:a flac ${outputPath}`);
+
+    // Clean up temp file
+    fs.unlinkSync(tempPath);
+
+    return outputPath;
+  } catch (error) {
+    // Clean up any files in case of error
+    if (fs.existsSync(tempPath)) fs.unlinkSync(tempPath);
+    if (fs.existsSync(outputPath)) fs.unlinkSync(outputPath);
+    throw error;
+  }
 }
 
 async function transcribeWithWhisper(audioPath: string, groq: Groq): Promise<string> {
@@ -193,8 +210,8 @@ async function transcribeWithWhisper(audioPath: string, groq: Groq): Promise<str
     const form = new FormData();
     const fileStream = fs.createReadStream(audioPath);
     form.append('file', fileStream, {
-      filename: 'audio.mp3',
-      contentType: 'audio/mpeg'
+      filename: 'audio.flac',
+      contentType: 'audio/flac'
     });
     form.append('model', 'whisper-large-v3-turbo');
     form.append('language', 'auto');
@@ -230,8 +247,8 @@ async function transcribeWithWhisper(audioPath: string, groq: Groq): Promise<str
           const retryForm = new FormData();
           const retryFileStream = fs.createReadStream(audioPath);
           retryForm.append('file', retryFileStream, {
-            filename: 'audio.mp3',
-            contentType: 'audio/mpeg'
+            filename: 'audio.flac',
+            contentType: 'audio/flac'
           });
           retryForm.append('model', 'whisper-large-v3-turbo');
           retryForm.append('language', 'auto');
