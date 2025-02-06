@@ -58,11 +58,14 @@ View complete details of past summaries, including full analysis and key points.
 
 ### Prerequisites
 
-- Node.js 15.x or higher
-- npm package manager
+- Node.js 15.x or higher (for local installation)
+- npm package manager (for local installation)
+- Docker (optional, for containerized installation)
 - API keys for the AI services
 
 ### Installation
+
+#### Option 1: Local Installation
 
 1. Clone the repository:
 ```bash
@@ -98,6 +101,36 @@ npm run dev
 # or
 yarn dev
 ```
+
+#### Option 2: Docker Installation
+
+1. Clone the repository:
+```bash
+git clone [repository-url]
+cd youtube-summarizer
+```
+
+2. Build the Docker image:
+```bash
+docker build -t youtube-summarizer .
+```
+
+3. Run the container:
+```bash
+docker run -d \
+  -p 3000:3000 \
+  -v ./prisma:/app/prisma \
+  -e GEMINI_API_KEY="your-key" \
+  -e GROQ_API_KEY="your-key" \
+  -e OPENAI_API_KEY="your-key" \
+  youtube-summarizer
+```
+
+Note for Docker installation:
+- The `-v ./prisma:/app/prisma` flag creates a volume for the SQLite database
+- You only need to provide the API keys for the models you want to use
+- At least one API key is required
+- The application will be available at http://localhost:3000
 
 The application will be available at [http://localhost:3000](http://localhost:3000)
 
