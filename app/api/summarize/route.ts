@@ -5,6 +5,14 @@ import { extractVideoId, createSummaryPrompt } from '@/lib/youtube';
 import { GoogleGenerativeAI } from "@google/generative-ai";
 import { Groq } from "groq-sdk";
 import OpenAI from 'openai';
+import ytdl from 'ytdl-core';
+import fs from 'fs';
+import path from 'path';
+import { exec } from 'child_process';
+import { promisify } from 'util';
+import FormData from 'form-data';
+
+const execAsync = promisify(exec);
 
 // Initialize API clients only when needed
 function getGeminiClient() {
@@ -65,7 +73,7 @@ function cleanModelOutput(text: string): string {
     .replace(/^(Wie gewünscht|Entsprechend Ihrer|Als Antwort auf).*?:\s*/i, '')
     // Remove meta instructions while preserving markdown
     .replace(/^[^:\n🎯🎙️#*\-•]+:\s*/gm, '')  // Remove prefixes but keep markdown and emojis
-    .replace(/^(?![#*\-•🎯🎙️])[\s\d]+\.\s*/gm, '') // Remove numbered lists but keep markdown lists
+    .replace(/^(?![#*\-•🎯️])[\s\d]+\.\s*/gm, '') // Remove numbered lists but keep markdown lists
     .trim();
 }
 
@@ -163,21 +171,51 @@ async function splitTranscriptIntoChunks(transcript: string, chunkSize: number =
   return chunks;
 }
 
-async function getTranscript(videoId: string): Promise<{ transcript: string; source: 'youtube'; title: string }> {
+async function downloadAudio(videoId: string): Promise<string> {
+  const outputPath = path.join('/tmp', `${videoId}.mp3`);
+
+  return new Promise((resolve, reject) => {
+    const videoUrl = `https://www.youtube.com/watch?v=${videoId}`;
+    ytdl(videoUrl, {
+      quality: 'lowestaudio',
+      filter: 'audioonly',
+    })
+    .pipe(fs.createWriteStream(outputPath))
+    .on('finish', () => resolve(outputPath))
+    .on('error', reject);
+  });
+}
+
+async function transcribeWithWhisper(audioPath: string, groq: Groq): Promise<string> {
+  try {
+    const fileStream = fs.createReadStream(audioPath);
+
+    const completion = await groq.audio.transcriptions.create({
+      file: fileStream,
+      model: "whisper-large-v3-turbo",
+      language: "auto",
+      response_format: "text"
+    });
+
+    return typeof completion === 'string' ? completion : JSON.stringify(completion);
+  } finally {
+    // Cleanup: Delete the temporary audio file
+    fs.unlinkSync(audioPath);
+  }
+}
+
+async function getTranscript(videoId: string): Promise<{ transcript: string; source: 'youtube' | 'whisper'; title: string }> {
   try {
     // First try YouTube transcripts
     const transcriptList = await YoutubeTranscript.fetchTranscript(videoId);
 
-    // Extract title from first few lines of transcript
+    // Extract title and process transcript as before
     const firstFewLines = transcriptList.slice(0, 5).map(item => item.text).join(' ');
     let title = firstFewLines.split('.')[0].trim();
 
-    // If title is too long, truncate it
     if (title.length > 100) {
       title = title.substring(0, 97) + '...';
     }
-
-    // If title is too short or seems incomplete, use a generic title
     if (title.length < 10) {
       title = `YouTube Video Summary`;
     }
@@ -188,8 +226,36 @@ async function getTranscript(videoId: string): Promise<{ transcript: string; sou
       title
     };
   } catch (error) {
-    console.log('YouTube transcript not available');
-    throw new Error('Transcript not available. Currently only supporting videos with subtitles.');
+    console.log('YouTube transcript not available, falling back to Whisper...');
+
+    // Get video info for title
+    const videoInfo = await ytdl.getInfo(videoId);
+    const title = videoInfo.videoDetails.title;
+
+    // Check if Groq API is available
+    const groq = getGroqClient();
+    if (!groq) {
+      throw new Error('Transcript not available and Groq API key not configured for Whisper fallback.');
+    }
+
+    try {
+      // Download audio
+      const audioPath = await downloadAudio(videoId);
+      console.log('Audio downloaded successfully');
+
+      // Transcribe with Whisper
+      const transcript = await transcribeWithWhisper(audioPath, groq);
+      console.log('Transcription completed successfully');
+
+      return {
+        transcript,
+        source: 'whisper',
+        title
+      };
+    } catch (whisperError) {
+      console.error('Whisper transcription failed:', whisperError);
+      throw new Error('Failed to get transcript from both YouTube and Whisper. Please ensure the video has subtitles or try again later.');
+    }
   }
 }
 
