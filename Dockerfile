@@ -34,4 +34,4 @@ EXPOSE 3000
 VOLUME ["/app/prisma"]
 
 # Start the application with direct command
-CMD ["/bin/sh", "-c", "npx prisma db push && npm start"]
+CMD ["/bin/sh", "-c", "npx prisma db push --schema=/app/prisma/schema.prisma && npm start"]
