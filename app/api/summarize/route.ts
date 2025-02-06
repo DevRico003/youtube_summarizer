@@ -350,9 +350,9 @@ async function downloadAudio(videoId: string): Promise<string> {
   }
 }
 
-async function transcribeWithWhisper(audioPath: string, groq: Groq): Promise<string> {
+async function transcribeWithWhisper(audioPath: string): Promise<string> {
   try {
-    logger.info('Starting transcription process');
+    logger.info('Starting transcription process with OpenAI Whisper');
 
     // Verify input file
     const inputStats = fs.statSync(audioPath);
@@ -361,66 +361,25 @@ async function transcribeWithWhisper(audioPath: string, groq: Groq): Promise<str
       path: audioPath
     });
 
+    const openai = getOpenAIClient();
+    if (!openai) {
+      throw new Error('OpenAI API key not configured for Whisper transcription.');
+    }
+
     // Read file as buffer
     const audioBuffer = await fs.promises.readFile(audioPath);
     logger.info(`Read audio file of size: ${audioBuffer.length} bytes`);
 
-    // Create form data
-    const form = new FormData();
-
-    // Create a proper file object
-    const file = new Blob([audioBuffer], { type: 'audio/flac' });
-    form.append('file', file, {
-      filename: 'audio.flac',
-      contentType: 'audio/flac'
-    });
-
-    // Add required parameters
-    form.append('model', 'whisper-large-v3');
-    form.append('language', 'auto');
-    form.append('response_format', 'text');
-
-    logger.debug('Request parameters:', {
-      model: 'whisper-large-v3',
-      fileSize: audioBuffer.length,
-      contentType: 'audio/flac'
-    });
-
     try {
-      logger.info('Sending request to Groq API...');
-      const response = await fetch('https://api.groq.com/openai/v1/audio/transcriptions', {
-        method: 'POST',
-        headers: {
-          'Authorization': `Bearer ${process.env.GROQ_API_KEY}`
-        },
-        body: form
+      logger.info('Sending request to OpenAI Whisper API...');
+      const transcription = await openai.audio.transcriptions.create({
+        file: new File([audioBuffer], 'audio.flac', { type: 'audio/flac' }),
+        model: 'whisper-1',
+        language: 'auto'
       });
 
-      logger.info(`Received response with status: ${response.status}`);
-      const responseText = await response.text();
-      logger.debug('Raw response:', responseText);
-
-      if (!response.ok) {
-        let errorMessage = `API request failed: ${response.statusText} (${response.status})`;
-        try {
-          const errorData = JSON.parse(responseText);
-          logger.error('API error details:', errorData);
-          errorMessage += ` - ${JSON.stringify(errorData)}`;
-        } catch (e) {
-          logger.error('Failed to parse error response:', e);
-          errorMessage += ` - ${responseText}`;
-        }
-        throw new Error(errorMessage);
-      }
-
-      try {
-        const data = JSON.parse(responseText);
-        logger.info('Successfully parsed response');
-        return data.text;
-      } catch (e) {
-        logger.info('Response was not JSON, using raw text');
-        return responseText;
-      }
+      logger.info('Successfully received transcription from Whisper');
+      return transcription.text;
 
     } catch (error: any) {
       logger.error('Transcription request failed:', error);
@@ -492,10 +451,10 @@ async function getTranscript(videoId: string): Promise<{ transcript: string; sou
         author: videoInfo.videoDetails.author.name
       });
 
-      // Check if Groq API is available
-      const groq = getGroqClient();
-      if (!groq) {
-        const error = 'Transcript not available and Groq API key not configured for Whisper fallback.';
+      // Check if OpenAI API is available
+      const openai = getOpenAIClient();
+      if (!openai) {
+        const error = 'Transcript not available and OpenAI API key not configured for Whisper fallback.';
         logger.error(error, { message: error });
         throw new Error(error);
       }
@@ -508,7 +467,7 @@ async function getTranscript(videoId: string): Promise<{ transcript: string; sou
           fileStats: fs.statSync(audioPath)
         });
 
-        const transcript = await transcribeWithWhisper(audioPath, groq);
+        const transcript = await transcribeWithWhisper(audioPath);
         logger.info('Transcription completed successfully', {
           transcriptLength: transcript.length
         });
