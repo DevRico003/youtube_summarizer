@@ -15,6 +15,26 @@ import fetch from 'node-fetch';
 
 const execAsync = promisify(exec);
 
+// Add at the top of the file after imports
+const logger = {
+  info: (message: string, data?: any) => {
+    console.log(`[INFO] ${message}`, data ? JSON.stringify(data, null, 2) : '');
+  },
+  error: (message: string, error: any) => {
+    console.error(`[ERROR] ${message}`, {
+      message: error?.message,
+      status: error?.status,
+      stack: error?.stack,
+      cause: error?.cause,
+      details: error?.details,
+      response: error?.response,
+    });
+  },
+  debug: (message: string, data?: any) => {
+    console.debug(`[DEBUG] ${message}`, data ? JSON.stringify(data, null, 2) : '');
+  }
+};
+
 // Initialize API clients only when needed
 function getGeminiClient() {
   const apiKey = process.env.GEMINI_API_KEY;
@@ -177,26 +197,57 @@ async function downloadAudio(videoId: string): Promise<string> {
   const outputPath = path.join('/tmp', `${videoId}.flac`);
 
   try {
+    logger.info(`Starting audio download for video ${videoId}`);
+
     // First download the audio
     await new Promise<void>((resolve, reject) => {
       const videoUrl = `https://www.youtube.com/watch?v=${videoId}`;
-      ytdl(videoUrl, {
+      logger.debug(`Downloading from URL: ${videoUrl}`);
+
+      const stream = ytdl(videoUrl, {
         quality: 'lowestaudio',
         filter: 'audioonly',
-      })
-      .pipe(fs.createWriteStream(tempPath))
-      .on('finish', () => resolve())
-      .on('error', reject);
+      });
+
+      stream.on('info', (info, format) => {
+        logger.debug('Stream info:', {
+          format: format.container,
+          quality: format.quality,
+          audioCodec: format.audioCodec,
+          bitrate: format.audioBitrate
+        });
+      });
+
+      stream.pipe(fs.createWriteStream(tempPath))
+        .on('finish', () => {
+          logger.info(`Audio download completed: ${tempPath}`);
+          resolve();
+        })
+        .on('error', (error) => {
+          logger.error('Error during audio download:', error);
+          reject(error);
+        });
     });
 
-    // Convert to optimal format for Whisper using ffmpeg
+    // Convert to optimal format for Whisper
+    logger.info('Converting audio to FLAC format...');
     await execAsync(`ffmpeg -i ${tempPath} -ar 16000 -ac 1 -c:a flac ${outputPath}`);
+    logger.info('Audio conversion completed');
+
+    // Verify the output file
+    const stats = fs.statSync(outputPath);
+    logger.debug('Output file details:', {
+      size: stats.size,
+      path: outputPath
+    });
 
     // Clean up temp file
     fs.unlinkSync(tempPath);
+    logger.info('Temporary MP3 file cleaned up');
 
     return outputPath;
   } catch (error) {
+    logger.error('Error in downloadAudio:', error);
     // Clean up any files in case of error
     if (fs.existsSync(tempPath)) fs.unlinkSync(tempPath);
     if (fs.existsSync(outputPath)) fs.unlinkSync(outputPath);
@@ -206,11 +257,18 @@ async function downloadAudio(videoId: string): Promise<string> {
 
 async function transcribeWithWhisper(audioPath: string, groq: Groq): Promise<string> {
   try {
-    console.log('Starting transcription process...');
+    logger.info('Starting transcription process');
+
+    // Verify input file
+    const inputStats = fs.statSync(audioPath);
+    logger.debug('Input file details:', {
+      size: inputStats.size,
+      path: audioPath
+    });
 
     // Read file as buffer
     const audioBuffer = await fs.promises.readFile(audioPath);
-    console.log(`Read audio file of size: ${audioBuffer.length} bytes`);
+    logger.info(`Read audio file of size: ${audioBuffer.length} bytes`);
 
     // Create form data
     const form = new FormData();
@@ -227,8 +285,14 @@ async function transcribeWithWhisper(audioPath: string, groq: Groq): Promise<str
     form.append('language', 'auto');
     form.append('response_format', 'text');
 
+    logger.debug('Request parameters:', {
+      model: 'whisper-large-v3',
+      fileSize: audioBuffer.length,
+      contentType: 'audio/flac'
+    });
+
     try {
-      console.log('Sending request to Groq API...');
+      logger.info('Sending request to Groq API...');
       const response = await fetch('https://api.groq.com/openai/v1/audio/transcriptions', {
         method: 'POST',
         headers: {
@@ -237,17 +301,18 @@ async function transcribeWithWhisper(audioPath: string, groq: Groq): Promise<str
         body: form
       });
 
-      console.log(`Received response with status: ${response.status}`);
+      logger.info(`Received response with status: ${response.status}`);
       const responseText = await response.text();
-      console.log('Response body:', responseText);
+      logger.debug('Raw response:', responseText);
 
       if (!response.ok) {
         let errorMessage = `API request failed: ${response.statusText} (${response.status})`;
         try {
           const errorData = JSON.parse(responseText);
+          logger.error('API error details:', errorData);
           errorMessage += ` - ${JSON.stringify(errorData)}`;
         } catch (e) {
-          // If JSON parsing fails, use the raw text
+          logger.error('Failed to parse error response:', e);
           errorMessage += ` - ${responseText}`;
         }
         throw new Error(errorMessage);
@@ -255,27 +320,24 @@ async function transcribeWithWhisper(audioPath: string, groq: Groq): Promise<str
 
       try {
         const data = JSON.parse(responseText);
+        logger.info('Successfully parsed response');
         return data.text;
       } catch (e) {
-        // If the response is not JSON, assume it's plain text
+        logger.info('Response was not JSON, using raw text');
         return responseText;
       }
 
     } catch (error: any) {
-      console.error('Detailed transcription error:', {
-        message: error.message,
-        stack: error.stack,
-        cause: error.cause
-      });
+      logger.error('Transcription request failed:', error);
       throw new Error(`Whisper transcription failed: ${error.message || 'Unknown error'}`);
     }
   } finally {
     // Cleanup: Delete the temporary audio file
     try {
       await fs.promises.unlink(audioPath);
-      console.log('Cleaned up temporary audio file');
+      logger.info('Cleaned up temporary audio file');
     } catch (error) {
-      console.error('Failed to delete temporary audio file:', error);
+      logger.error('Failed to delete temporary audio file:', error);
     }
   }
 }
