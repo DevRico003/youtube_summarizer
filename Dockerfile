@@ -11,14 +11,14 @@ RUN apk add --no-cache \
     g++ \
     sqlite
 
-# Copy package files first (for better caching)
+# Copy prisma schema and package files first (for better caching)
+COPY prisma ./prisma/
 COPY package*.json ./
 
 # Install dependencies
 RUN npm ci
 
-# Copy prisma schema and generate client
-COPY prisma ./prisma/
+# generate client
 RUN npx prisma generate
 
 # Copy the rest of the application
