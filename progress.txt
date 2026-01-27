@@ -1,7 +1,8 @@
 ## Codebase Patterns
 - Jest testing: Use `npm test` to run tests, configure with jest.config.js using ts-jest preset
 - Test path alias: `@/` maps to project root in jest.config.js via moduleNameMapper
-- Tests go in `__tests__/lib/` directory mirroring the lib/ structure
+- Tests go in `__tests__/lib/` directory mirroring the lib/ structure, `__tests__/api/` for API tests
+- API integration tests: Mock Prisma with jest.mock('@/lib/prisma'), use NextRequest for API testing
 - Prisma schema uses SQLite for local development (file:./dev.db)
 - All models use cuid() for IDs
 - Relations use onDelete: Cascade or SetNull as appropriate
@@ -872,4 +873,49 @@ Thread: https://ampcode.com/threads/$AMP_CURRENT_THREAD_ID
 - **Learnings for future iterations:**
   - Chunking overlap needs a forward-progress guard; stop when endPos hits text length
   - Jest may require higher Node heap in this environment; `NODE_OPTIONS=--max-old-space-size=8192` helped run the full suite
+---
+
+## 2026-01-27 - US-053
+- What was implemented: Created comprehensive unit tests for auth utility functions
+- Files changed:
+  - __tests__/lib/auth.test.ts (new - 31 tests for hashPassword, verifyPassword, generateToken, verifyToken)
+- **Learnings for future iterations:**
+  - bcrypt hashes always start with $2a$ or $2b$ version identifier - use regex to verify hash format
+  - Password hashing is async (uses bcrypt.hash/bcrypt.compare), token generation is sync (jwt.sign/jwt.verify)
+  - Test APP_SECRET env manipulation: store original, delete/change, restore in afterAll
+  - JWT tampering tests: split token by '.', modify base64url payload, rejoin - verifyToken should return null
+  - verifyToken catches all errors internally and returns null (not throws), so test for null on invalid input
+  - bcrypt with 12 salt rounds takes ~170-350ms per hash operation - budget time for test suite
+---
+
+## 2026-01-27 - US-054
+- What was implemented: Created integration tests for auth API endpoints (register and login)
+- Files changed:
+  - __tests__/api/auth.test.ts (new - 27 tests for /api/auth/register and /api/auth/login)
+- **Learnings for future iterations:**
+  - API integration tests: Use jest.mock('@/lib/prisma') to mock Prisma client without database
+  - Next.js API testing: Create NextRequest with JSON body via `new NextRequest(url, { method, headers, body })`
+  - Mock Prisma pattern: `(mockedPrisma.user.findUnique as jest.Mock).mockResolvedValue(...)` for async mocks
+  - Test categories: validation tests (400), success tests (200), conflict tests (409), auth failure tests (401), database error tests (500)
+  - Security testing: Verify same error message for non-existent user and wrong password (no user enumeration)
+  - JWT verification in tests: Import verifyToken to validate tokens returned by API endpoints
+  - Console.error in tests: Expected when testing error handlers - not a test failure
+  - API tests go in __tests__/api/ directory, mirroring app/api/ structure
+---
+
+## 2026-01-27 - US-055
+- What was implemented: Created comprehensive integration tests for the summarize API endpoint
+- Files changed:
+  - __tests__/api/summarize.test.ts (new - 26 tests for /api/summarize GET and POST)
+- **Learnings for future iterations:**
+  - Summarize API uses streaming responses; parse with ReadableStream reader and TextDecoder
+  - Helper `parseStreamResponse()` buffers partial JSON lines and parses complete events
+  - Mock multiple dependencies: prisma, transcript, llmChain, topicExtraction, usageLogger
+  - TranscriptError mock: Create error class with `code` property in mock factory
+  - Streaming tests: Response headers include `Content-Type: text/event-stream`, `Cache-Control: no-cache`, `Connection: keep-alive`
+  - Progress events have `type: "progress"` with `stage` field for the 4 stages
+  - Complete events have `type: "complete"` with full `summary` object including `source: "cache"` or `"generated"`
+  - Video ID extraction: Use valid 11-character YouTube video IDs in test URLs (e.g., `dQw4w9WgXcQ`)
+  - URL format tests: Standard watch?v=, shorts/, embed/, youtu.be/ formats all extract the same videoId
+  - Topic extraction only runs when `hasTimestamps && videoDurationMs > 0`; gracefully continues if extraction fails
 ---
