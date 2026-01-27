@@ -2,7 +2,7 @@
 
 import { useState, useEffect } from "react"
 import { useRouter } from "next/navigation"
-import { Copy, Check, Key, RefreshCw, ChevronRight } from "lucide-react"
+import { Copy, Check, Key, RefreshCw, ChevronRight, ChevronLeft, Loader2, CheckCircle2, XCircle, SkipForward } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
@@ -21,6 +21,12 @@ export default function SetupWizard() {
   const [customSecret, setCustomSecret] = useState("")
   const [useCustom, setUseCustom] = useState(false)
   const [copied, setCopied] = useState(false)
+
+  // Step 2: Supadata API key state
+  const [supadataKey, setSupadataKey] = useState("")
+  const [supadataStatus, setSupadataStatus] = useState<"idle" | "testing" | "success" | "error">("idle")
+  const [supadataError, setSupadataError] = useState("")
+  const [supadataSaving, setSupadataSaving] = useState(false)
 
   // Generate initial secret on mount
   useEffect(() => {
@@ -44,7 +50,84 @@ export default function SetupWizard() {
   }
 
   const handleNext = () => {
-    setCurrentStep(2)
+    setCurrentStep((prev) => prev + 1)
+  }
+
+  const handleBack = () => {
+    setCurrentStep((prev) => prev - 1)
+  }
+
+  // Test Supadata API key
+  const handleTestSupadata = async () => {
+    if (!supadataKey.trim()) return
+
+    setSupadataStatus("testing")
+    setSupadataError("")
+
+    try {
+      const response = await fetch("/api/setup/test-key", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ service: "supadata", apiKey: supadataKey }),
+      })
+
+      const data = await response.json()
+
+      if (data.success) {
+        setSupadataStatus("success")
+      } else {
+        setSupadataStatus("error")
+        setSupadataError(data.error || "Validation failed")
+      }
+    } catch (error) {
+      setSupadataStatus("error")
+      setSupadataError("Failed to test API key")
+    }
+  }
+
+  // Save Supadata API key and proceed to next step
+  const handleSaveSupadata = async () => {
+    setSupadataSaving(true)
+
+    try {
+      const response = await fetch("/api/setup/save-key", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ service: "supadata", apiKey: supadataKey }),
+      })
+
+      const data = await response.json()
+
+      if (data.success) {
+        handleNext()
+      } else {
+        setSupadataError(data.error || "Failed to save API key")
+      }
+    } catch (error) {
+      setSupadataError("Failed to save API key")
+    } finally {
+      setSupadataSaving(false)
+    }
+  }
+
+  // Skip Supadata and proceed to next step
+  const handleSkipSupadata = async () => {
+    setSupadataSaving(true)
+
+    try {
+      // Call save-key with empty key to signal skip
+      await fetch("/api/setup/save-key", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ service: "supadata", apiKey: "" }),
+      })
+      handleNext()
+    } catch (error) {
+      // Even if the call fails, we can still proceed since skipping is optional
+      handleNext()
+    } finally {
+      setSupadataSaving(false)
+    }
   }
 
   const activeSecret = useCustom ? customSecret : secret
@@ -217,10 +300,108 @@ export default function SetupWizard() {
           )}
 
           {currentStep === 2 && (
-            <div className="text-center text-muted-foreground py-8">
-              <p>Step 2: Supadata API Key</p>
-              <p className="text-sm mt-2">Coming in US-007</p>
-            </div>
+            <>
+              <div className="flex items-center space-x-2 text-lg font-medium">
+                <Key className="h-5 w-5" />
+                <span>Step 2: Supadata API Key</span>
+              </div>
+
+              <p className="text-sm text-muted-foreground">
+                Supadata is used to fetch YouTube video transcripts. Get your API key from{" "}
+                <a
+                  href="https://supadata.ai"
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="text-primary hover:underline"
+                >
+                  supadata.ai
+                </a>
+              </p>
+
+              {/* API Key Input */}
+              <div className="space-y-2">
+                <label className="text-sm font-medium">API Key</label>
+                <div className="flex space-x-2">
+                  <Input
+                    type="password"
+                    value={supadataKey}
+                    onChange={(e) => {
+                      setSupadataKey(e.target.value)
+                      setSupadataStatus("idle")
+                      setSupadataError("")
+                    }}
+                    placeholder="Enter your Supadata API key"
+                    className="flex-1"
+                  />
+                  <Button
+                    variant="outline"
+                    onClick={handleTestSupadata}
+                    disabled={!supadataKey.trim() || supadataStatus === "testing"}
+                  >
+                    {supadataStatus === "testing" ? (
+                      <Loader2 className="h-4 w-4 animate-spin" />
+                    ) : (
+                      "Test"
+                    )}
+                  </Button>
+                </div>
+
+                {/* Status indicator */}
+                {supadataStatus === "success" && (
+                  <div className="flex items-center space-x-2 text-sm text-green-600">
+                    <CheckCircle2 className="h-4 w-4" />
+                    <span>API key is valid</span>
+                  </div>
+                )}
+                {supadataStatus === "error" && (
+                  <div className="flex items-center space-x-2 text-sm text-destructive">
+                    <XCircle className="h-4 w-4" />
+                    <span>{supadataError}</span>
+                  </div>
+                )}
+              </div>
+
+              {/* Info box */}
+              <div className="bg-muted rounded-lg p-4 space-y-2">
+                <h4 className="font-medium text-sm">Why Supadata?</h4>
+                <ul className="text-sm text-muted-foreground space-y-1 list-disc list-inside">
+                  <li>Fetches transcripts from YouTube, TikTok, Instagram</li>
+                  <li>Supports multiple languages</li>
+                  <li>Provides accurate timestamps for topic detection</li>
+                </ul>
+                <p className="text-sm text-muted-foreground mt-2">
+                  <strong>Note:</strong> This key is optional. You can skip this step and configure it later in settings.
+                </p>
+              </div>
+
+              {/* Navigation */}
+              <div className="flex justify-between pt-4">
+                <Button variant="outline" onClick={handleBack}>
+                  <ChevronLeft className="mr-2 h-4 w-4" />
+                  Back
+                </Button>
+                <div className="flex space-x-2">
+                  <Button
+                    variant="ghost"
+                    onClick={handleSkipSupadata}
+                    disabled={supadataSaving}
+                  >
+                    <SkipForward className="mr-2 h-4 w-4" />
+                    Skip
+                  </Button>
+                  <Button
+                    onClick={handleSaveSupadata}
+                    disabled={!supadataKey.trim() || supadataSaving}
+                  >
+                    {supadataSaving ? (
+                      <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                    ) : null}
+                    Next
+                    <ChevronRight className="ml-2 h-4 w-4" />
+                  </Button>
+                </div>
+              </div>
+            </>
           )}
 
           {currentStep === 3 && (
