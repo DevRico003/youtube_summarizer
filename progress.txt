@@ -68,6 +68,99 @@
 - Summary page V2: ProgressStages component during loading state
 - Summary page V2: Query params changed from lang/mode/model to just `detail` (1-5)
 
+- Summary page V2 Desktop: Two-column layout at md breakpoint (768px)
+- Summary page V2 Desktop: Left column (400px fixed) = thumbnail + timeline + topic editor
+- Summary page V2 Desktop: Right column (flex-1) = chapter links + summary content
+- Summary page V2 Desktop: Use `transition-all duration-300` for smooth layout transitions
+- Summary page V2 Desktop: TopicEditor shown only when authenticated (not just hidden md:block)
+
+- Topic Editor Toggle: Only visible when isAuthenticated && hasTimestamps && topics.length > 0
+- Topic Editor Toggle: Mobile has Edit Topics button to toggle visibility, desktop always shows when auth
+- Topic Saving: Save via POST /api/topics/edit with `Authorization: Bearer <token>` header
+- Topic Saving: Body format: `{ summaryId, topics: [{ topicId, customTitle, customStartMs, customEndMs }] }`
+- Topic Saving: Use displayTopics state to reflect edited topics in Timeline and ChapterLinks
+- Success Toast: Show green success message with Check icon, auto-dismiss after 3 seconds
+
+- Markdown export: `generateMarkdown(summary, topics, videoId)` returns formatted markdown string
+- Markdown export: Includes title, YouTube video link, chapter links with timestamps, and summary content
+- User Preferences API: GET returns preferences (creates defaults on first access), POST/PUT updates preferences
+- Preferences API: Protected route using `getUserIdFromRequest()` pattern with JWT auth
+- Preferences API: Uses Prisma upsert for create-or-update behavior on POST
+- Home page preferences: Fetch from `/api/preferences` on mount when `isAuthenticated` (via useAuth hook)
+- Home page preferences: Wait for `authLoading` to complete, use `preferencesLoaded` flag to prevent duplicate fetches
+
+---
+
+## 2026-01-27 - US-037
+- What was implemented: Created user preferences API with GET and POST/PUT endpoints
+- Files changed:
+  - app/api/preferences/route.ts (new)
+- **Learnings for future iterations:**
+  - `getUserIdFromRequest()` pattern extracts token from Authorization header and verifies with `verifyToken()`
+  - GET endpoint creates default preferences on first access if none exist
+  - POST uses Prisma upsert pattern - creates if not exists, updates if exists
+  - PUT is an alias for POST for RESTful compatibility
+  - Validates detailLevel range (1-5) when provided
+  - Only includes provided fields in update data to allow partial updates
+  - Returns preferences object with: language, detailLevel, preferredModel, customPrompt
+
+---
+
+## 2026-01-27 - US-038
+- What was implemented: Added user preferences loading on home page mount
+- Files changed:
+  - app/page.tsx (added useEffect for fetching preferences)
+- **Learnings for future iterations:**
+  - Use `useAuth()` hook to check `isAuthenticated` and `authLoading` states
+  - Wait for `authLoading` to complete before fetching preferences
+  - Use `preferencesLoaded` state flag to prevent multiple fetches
+  - Fetch from `/api/preferences` with `Authorization: Bearer <token>` header
+  - Pre-populate `detailLevel` and `aiModel` state from preferences
+  - Silently fail and use defaults if fetch fails (don't block user)
+  - Unauthenticated users simply get default values (detailLevel=3, aiModel="")
+
+---
+
+## 2026-01-27 - US-036
+- What was implemented: Added export button to summary page for downloading markdown files
+- Files changed:
+  - app/summary/[videoUrl]/page.tsx (added Export button and handleExport function)
+- **Learnings for future iterations:**
+  - Export button placed in Summary content card header with flex justify-between layout
+  - `handleExport()` uses `generateMarkdown()` from lib/exportMarkdown.ts with displayTopics (edited or original)
+  - Download via Blob with `text/markdown;charset=utf-8` MIME type
+  - File download using dynamically created anchor element with URL.createObjectURL()
+  - Filename format: `${videoId}-summary.md`
+  - Clean up: revokeObjectURL after download to prevent memory leaks
+
+---
+
+## 2026-01-27 - US-035
+- What was implemented: Created markdown export utility for exporting summaries as markdown files
+- Files changed:
+  - lib/exportMarkdown.ts (new)
+- **Learnings for future iterations:**
+  - `generateMarkdown()` accepts Summary (title, content), Topic[], and videoId
+  - Chapter links use YouTube timestamp format: `&t=${seconds}s`
+  - `formatTime()` helper converts ms to MM:SS or HH:MM:SS for long videos
+  - Topics sorted by order before rendering chapter links
+  - Footer includes "Generated with YouTube Summarizer" attribution
+
+---
+
+## 2026-01-27 - US-034
+- What was implemented: Added topic editor toggle functionality to summary page
+- Files changed:
+  - app/summary/[videoUrl]/page.tsx (added toggle, save functionality, success toast)
+- **Learnings for future iterations:**
+  - TopicEditor now requires authentication to be visible (via useAuth hook)
+  - Mobile: Edit Topics button toggles TopicEditor visibility
+  - Desktop: TopicEditor always visible when authenticated
+  - Save uses displayTopics state to maintain edits across render cycles
+  - Success toast: green-600/green-400 colors with Check icon
+  - Loading state: Loader2 with animate-spin during save
+  - Error handling: Uses existing inline error toast pattern
+
 ---
 
 ## 2026-01-27 - US-032
@@ -505,4 +598,19 @@
   - Button disabled when email/password empty or during loading
   - Use Mail/Lock icons inside inputs with pl-10 padding
   - Link uses Next.js Link component with href="/register"
+---
+
+## 2026-01-27 - US-033
+- What was implemented: Added responsive desktop layout with two-column split at md breakpoint
+- Files changed:
+  - app/summary/[videoUrl]/page.tsx (updated with responsive layout)
+- **Learnings for future iterations:**
+  - Desktop layout uses `flex flex-col md:flex-row md:gap-6` for responsive column switching
+  - Left column has fixed width `md:w-[400px] md:flex-shrink-0` to prevent squishing
+  - TopicEditor shown only on desktop with `hidden md:block` (placeholder save handler for US-034)
+  - Back button duplicated: one in left column for desktop, one in right column for mobile
+  - Title moved above columns for full width on both layouts
+  - `transition-all duration-300` applied to containers for smooth responsive transitions
+  - Loading state also updated with `md:max-w-md` constraints
+  - Container width increased to `max-w-5xl` to accommodate two columns
 ---

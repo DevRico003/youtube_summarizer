@@ -1,6 +1,6 @@
 "use client"
 
-import { useState } from "react"
+import { useState, useEffect } from "react"
 import { useRouter } from "next/navigation"
 import { Youtube, AlertCircle, Loader2 } from "lucide-react"
 import { Button } from "@/components/ui/button"
@@ -9,6 +9,7 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/com
 import { extractVideoId } from "@/lib/youtube"
 import { ModelSelector } from "@/components/ModelSelector"
 import { DetailSlider } from "@/components/DetailSlider"
+import { useAuth } from "@/contexts/AuthContext"
 
 export default function Home() {
   const [url, setUrl] = useState("")
@@ -17,7 +18,51 @@ export default function Home() {
   const [thinkingMode, setThinkingMode] = useState(false)
   const [urlError, setUrlError] = useState("")
   const [isSubmitting, setIsSubmitting] = useState(false)
+  const [preferencesLoaded, setPreferencesLoaded] = useState(false)
   const router = useRouter()
+  const { isAuthenticated, isLoading: authLoading } = useAuth()
+
+  // Fetch user preferences on mount when authenticated
+  useEffect(() => {
+    const fetchPreferences = async () => {
+      if (!isAuthenticated || preferencesLoaded) return
+
+      try {
+        const token = localStorage.getItem("token")
+        if (!token) return
+
+        const response = await fetch("/api/preferences", {
+          headers: {
+            "Authorization": `Bearer ${token}`,
+          },
+        })
+
+        if (response.ok) {
+          const data = await response.json()
+          if (data.success && data.preferences) {
+            // Pre-populate detail level
+            if (data.preferences.detailLevel) {
+              setDetailLevel(data.preferences.detailLevel)
+            }
+            // Pre-populate model (will be validated by ModelSelector against available models)
+            if (data.preferences.preferredModel) {
+              setAiModel(data.preferences.preferredModel)
+            }
+          }
+        }
+      } catch (error) {
+        // Silently fail - just use defaults
+        console.error("Failed to load preferences:", error)
+      } finally {
+        setPreferencesLoaded(true)
+      }
+    }
+
+    // Wait for auth loading to complete before fetching preferences
+    if (!authLoading) {
+      fetchPreferences()
+    }
+  }, [isAuthenticated, authLoading, preferencesLoaded])
 
   const validateUrl = (inputUrl: string): boolean => {
     if (!inputUrl.trim()) {

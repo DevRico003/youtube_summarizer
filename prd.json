@@ -556,7 +556,7 @@
         "Verify in browser using agent-browser skill"
       ],
       "priority": 33,
-      "passes": false,
+      "passes": true,
       "notes": ""
     },
     {
@@ -572,7 +572,7 @@
         "Verify in browser using agent-browser skill"
       ],
       "priority": 34,
-      "passes": false,
+      "passes": true,
       "notes": ""
     },
     {
@@ -588,7 +588,7 @@
         "Typecheck passes"
       ],
       "priority": 35,
-      "passes": false,
+      "passes": true,
       "notes": ""
     },
     {
@@ -603,7 +603,7 @@
         "Verify in browser using agent-browser skill"
       ],
       "priority": 36,
-      "passes": false,
+      "passes": true,
       "notes": ""
     },
     {
@@ -618,7 +618,7 @@
         "Typecheck passes"
       ],
       "priority": 37,
-      "passes": false,
+      "passes": true,
       "notes": ""
     },
     {
@@ -634,7 +634,7 @@
         "Verify in browser using agent-browser skill"
       ],
       "priority": 38,
-      "passes": false,
+      "passes": true,
       "notes": ""
     },
     {
