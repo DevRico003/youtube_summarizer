@@ -10,6 +10,7 @@ import { Button } from "@/components/ui/button";
 import { ProgressStages, type Stage } from "@/components/ProgressStages";
 import { Timeline } from "@/components/Timeline";
 import { ChapterLinks } from "@/components/ChapterLinks";
+import { TopicEditor } from "@/components/TopicEditor";
 import { extractVideoId } from "@/lib/youtube";
 
 interface Topic {
@@ -160,14 +161,14 @@ export default function SummaryPage({ params }: PageProps) {
   if (loading) {
     return (
       <div className="min-h-screen bg-background p-4">
-        <div className="max-w-2xl mx-auto space-y-6">
+        <div className="max-w-5xl mx-auto space-y-6">
           {/* Thumbnail placeholder */}
-          <div className="aspect-video bg-muted rounded-lg flex items-center justify-center">
+          <div className="aspect-video bg-muted rounded-lg flex items-center justify-center md:max-w-md">
             <div className="text-muted-foreground text-sm">Loading video...</div>
           </div>
 
           {/* Progress Stages */}
-          <Card>
+          <Card className="md:max-w-md">
             <CardContent className="pt-6">
               <h2 className="text-lg font-semibold mb-4">Generating Summary</h2>
               <ProgressStages currentStage={currentStage} />
@@ -178,12 +179,18 @@ export default function SummaryPage({ params }: PageProps) {
     );
   }
 
+  // Placeholder topic save handler (US-034 will implement actual saving)
+  const handleTopicSave = (topics: Topic[]) => {
+    console.log("Topics saved:", topics);
+    // TODO: Implement actual save in US-034
+  };
+
   return (
-    <div className="min-h-screen bg-background p-4">
-      <div className="max-w-2xl mx-auto space-y-4">
+    <div className="min-h-screen bg-background p-4 transition-all duration-300">
+      <div className="max-w-5xl mx-auto">
         {/* Error Toast (inline) */}
         {error && !errorDismissed && (
-          <div className="bg-destructive/15 border border-destructive/30 text-destructive px-4 py-3 rounded-lg flex items-start gap-3">
+          <div className="bg-destructive/15 border border-destructive/30 text-destructive px-4 py-3 rounded-lg flex items-start gap-3 mb-4">
             <AlertCircle className="w-5 h-5 flex-shrink-0 mt-0.5" />
             <div className="flex-1">
               <p className="font-medium">Error</p>
@@ -199,78 +206,109 @@ export default function SummaryPage({ params }: PageProps) {
           </div>
         )}
 
-        {/* Video Thumbnail with Play Button */}
-        {videoId && (
-          <a
-            href={youtubeUrl}
-            target="_blank"
-            rel="noopener noreferrer"
-            className="block relative aspect-video rounded-lg overflow-hidden group"
-          >
-            <img
-              src={thumbnailUrl}
-              alt={summary?.title || "Video thumbnail"}
-              className="w-full h-full object-cover"
-              onError={(e) => {
-                // Fallback to medium quality if maxresdefault fails
-                const target = e.target as HTMLImageElement;
-                if (target.src.includes("maxresdefault")) {
-                  target.src = `https://img.youtube.com/vi/${videoId}/hqdefault.jpg`;
-                }
-              }}
-            />
-            <div className="absolute inset-0 bg-black/30 group-hover:bg-black/40 transition-colors flex items-center justify-center">
-              <div className="w-16 h-16 rounded-full bg-red-600 flex items-center justify-center shadow-lg group-hover:scale-110 transition-transform">
-                <Play className="w-8 h-8 text-white fill-white ml-1" />
-              </div>
-            </div>
-          </a>
-        )}
-
-        {/* Video Title */}
+        {/* Video Title - Full width on both mobile and desktop */}
         {summary?.title && (
-          <h1 className="text-xl font-bold">{summary.title}</h1>
+          <h1 className="text-xl md:text-2xl font-bold mb-4 transition-all duration-300">
+            {summary.title}
+          </h1>
         )}
 
-        {/* Timeline (conditional - only when hasTimestamps) */}
-        {summary?.hasTimestamps && summary.topics.length > 0 && videoDuration > 0 && (
-          <div className="py-2">
-            <Timeline
-              topics={summary.topics}
-              videoDuration={videoDuration}
-              videoId={videoId}
-            />
-          </div>
-        )}
+        {/* Desktop: Two-column layout / Mobile: Vertical stack */}
+        <div className="flex flex-col md:flex-row md:gap-6 transition-all duration-300">
+          {/* Left Column: Thumbnail + Timeline + Topic Editor (for future) */}
+          <div className="md:w-[400px] md:flex-shrink-0 space-y-4 transition-all duration-300">
+            {/* Video Thumbnail with Play Button */}
+            {videoId && (
+              <a
+                href={youtubeUrl}
+                target="_blank"
+                rel="noopener noreferrer"
+                className="block relative aspect-video rounded-lg overflow-hidden group"
+              >
+                <img
+                  src={thumbnailUrl}
+                  alt={summary?.title || "Video thumbnail"}
+                  className="w-full h-full object-cover transition-transform duration-300"
+                  onError={(e) => {
+                    // Fallback to medium quality if maxresdefault fails
+                    const target = e.target as HTMLImageElement;
+                    if (target.src.includes("maxresdefault")) {
+                      target.src = `https://img.youtube.com/vi/${videoId}/hqdefault.jpg`;
+                    }
+                  }}
+                />
+                <div className="absolute inset-0 bg-black/30 group-hover:bg-black/40 transition-colors flex items-center justify-center">
+                  <div className="w-16 h-16 rounded-full bg-red-600 flex items-center justify-center shadow-lg group-hover:scale-110 transition-transform">
+                    <Play className="w-8 h-8 text-white fill-white ml-1" />
+                  </div>
+                </div>
+              </a>
+            )}
 
-        {/* Chapter Links */}
-        {summary?.topics && summary.topics.length > 0 && (
-          <Card>
-            <CardContent className="pt-6">
-              <ChapterLinks topics={summary.topics} videoId={videoId} />
-            </CardContent>
-          </Card>
-        )}
-
-        {/* Summary Content */}
-        {summary?.content && (
-          <Card>
-            <CardContent className="pt-6">
-              <h2 className="text-sm font-semibold text-muted-foreground uppercase tracking-wide mb-4">
-                Summary
-              </h2>
-              <div className="prose prose-sm max-w-none dark:prose-invert">
-                <ReactMarkdown>{summary.content}</ReactMarkdown>
+            {/* Timeline (conditional - only when hasTimestamps) */}
+            {summary?.hasTimestamps && summary.topics.length > 0 && videoDuration > 0 && (
+              <div className="py-2 transition-all duration-300">
+                <Timeline
+                  topics={summary.topics}
+                  videoDuration={videoDuration}
+                  videoId={videoId}
+                />
               </div>
-            </CardContent>
-          </Card>
-        )}
+            )}
 
-        {/* Back Button */}
-        <div className="pt-4">
-          <Button variant="outline" asChild>
-            <a href="/">← Back to Home</a>
-          </Button>
+            {/* Topic Editor - Desktop only, when hasTimestamps */}
+            {summary?.hasTimestamps && summary.topics.length > 0 && videoDuration > 0 && (
+              <Card className="hidden md:block transition-all duration-300">
+                <CardContent className="pt-6">
+                  <TopicEditor
+                    topics={summary.topics}
+                    videoDuration={videoDuration}
+                    onSave={handleTopicSave}
+                  />
+                </CardContent>
+              </Card>
+            )}
+
+            {/* Back Button - Desktop: in left column */}
+            <div className="hidden md:block pt-4 transition-all duration-300">
+              <Button variant="outline" asChild>
+                <a href="/">← Back to Home</a>
+              </Button>
+            </div>
+          </div>
+
+          {/* Right Column: Chapter Links + Summary Content */}
+          <div className="flex-1 space-y-4 mt-4 md:mt-0 transition-all duration-300">
+            {/* Chapter Links */}
+            {summary?.topics && summary.topics.length > 0 && (
+              <Card className="transition-all duration-300">
+                <CardContent className="pt-6">
+                  <ChapterLinks topics={summary.topics} videoId={videoId} />
+                </CardContent>
+              </Card>
+            )}
+
+            {/* Summary Content */}
+            {summary?.content && (
+              <Card className="transition-all duration-300">
+                <CardContent className="pt-6">
+                  <h2 className="text-sm font-semibold text-muted-foreground uppercase tracking-wide mb-4">
+                    Summary
+                  </h2>
+                  <div className="prose prose-sm max-w-none dark:prose-invert">
+                    <ReactMarkdown>{summary.content}</ReactMarkdown>
+                  </div>
+                </CardContent>
+              </Card>
+            )}
+
+            {/* Back Button - Mobile only */}
+            <div className="md:hidden pt-4 transition-all duration-300">
+              <Button variant="outline" asChild>
+                <a href="/">← Back to Home</a>
+              </Button>
+            </div>
+          </div>
         </div>
       </div>
     </div>
