@@ -1,9 +1,10 @@
 import type { Metadata } from "next"
 import { Inter } from "next/font/google"
 import "./globals.css"
-import { Sidebar, MobileSidebar } from "@/components/sidebar"
+import { Sidebar } from "@/components/sidebar"
+import { Header } from "@/components/header"
 import { Providers } from "@/components/providers"
-import type React from "react" // Added import for React
+import type React from "react"
 
 const inter = Inter({ subsets: ["latin"] })
 
@@ -26,10 +27,7 @@ export default function RootLayout({
               <Sidebar />
             </aside>
             <div className="flex flex-1 flex-col overflow-hidden">
-              <header className="flex h-14 items-center border-b px-4 lg:px-6">
-                <MobileSidebar />
-                <h1 className="text-lg font-semibold">YouTube AI Summarizer</h1>
-              </header>
+              <Header />
               <main className="flex-1 overflow-y-auto p-4 md:p-6">{children}</main>
             </div>
           </div>
