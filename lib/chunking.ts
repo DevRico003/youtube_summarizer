@@ -1,4 +1,13 @@
-import type { TranscriptSegment } from "./transcript";
+/**
+ * Transcript segment with timestamp information
+ * (Defined locally to avoid heavy import chain from transcript.ts)
+ */
+export interface TranscriptSegment {
+  text: string;
+  offset: number; // Start time in milliseconds
+  duration: number; // Duration in milliseconds
+  lang: string;
+}
 
 /**
  * Keywords that typically signal a topic transition
@@ -263,13 +272,20 @@ function chunkByCharacters(
       text: text.slice(startPos, endPos).trim(),
     });
 
-    // Move start position with overlap
-    startPos = endPos - overlap;
-
-    // Prevent infinite loop if overlap is too large
-    if (startPos >= text.length) {
+    // Stop after the final chunk
+    if (endPos >= text.length) {
       break;
     }
+
+    // Move start position with overlap
+    const nextStart = Math.max(endPos - overlap, 0);
+
+    // Prevent infinite loops if overlap prevents forward progress
+    if (nextStart <= startPos) {
+      break;
+    }
+
+    startPos = nextStart;
   }
 
   return chunks;

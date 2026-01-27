@@ -1,0 +1,430 @@
+import {
+  detectTopicBoundaries,
+  chunkTranscript,
+  TranscriptSegment,
+} from "@/lib/chunking";
+
+/**
+ * Helper to create a transcript segment with defaults
+ */
+function createSegment(
+  text: string,
+  offset: number,
+  duration: number = 2000,
+  lang: string = "en"
+): TranscriptSegment {
+  return { text, offset, duration, lang };
+}
+
+describe("chunking", () => {
+  describe("detectTopicBoundaries", () => {
+    describe("with time gaps", () => {
+      it("should detect boundaries for gaps greater than 3 seconds", () => {
+        const segments: TranscriptSegment[] = [
+          createSegment("First segment", 0, 2000),
+          createSegment("Second segment after gap", 6000, 2000),
+        ];
+
+        const boundaries = detectTopicBoundaries(segments);
+
+        expect(boundaries).toHaveLength(1);
+        expect(boundaries[0]).toEqual({
+          segmentIndex: 1,
+          offsetMs: 6000,
+          reason: "time_gap",
+        });
+      });
+
+      it("should detect multiple time gap boundaries", () => {
+        const segments: TranscriptSegment[] = [
+          createSegment("Segment 1", 0, 1000),
+          createSegment("Segment 2", 5000, 1000),
+          createSegment("Segment 3", 10000, 1000),
+          createSegment("Segment 4", 16000, 1000),
+        ];
+
+        const boundaries = detectTopicBoundaries(segments);
+
+        expect(boundaries).toHaveLength(3);
+        expect(boundaries[0].segmentIndex).toBe(1);
+        expect(boundaries[1].segmentIndex).toBe(2);
+        expect(boundaries[2].segmentIndex).toBe(3);
+        expect(boundaries.every((b) => b.reason === "time_gap")).toBe(true);
+      });
+
+      it("should not detect boundaries for gaps exactly 3 seconds", () => {
+        const segments: TranscriptSegment[] = [
+          createSegment("First", 0, 2000),
+          createSegment("Second", 5000, 2000),
+        ];
+
+        const boundaries = detectTopicBoundaries(segments);
+
+        expect(boundaries).toHaveLength(0);
+      });
+
+      it("should not detect boundaries for gaps less than 3 seconds", () => {
+        const segments: TranscriptSegment[] = [
+          createSegment("First", 0, 2000),
+          createSegment("Second", 4000, 2000),
+          createSegment("Third", 6000, 2000),
+        ];
+
+        const boundaries = detectTopicBoundaries(segments);
+
+        expect(boundaries).toHaveLength(0);
+      });
+
+      it("should handle overlapping segments (no gap)", () => {
+        const segments: TranscriptSegment[] = [
+          createSegment("First", 0, 3000),
+          createSegment("Second", 2500, 2000),
+        ];
+
+        const boundaries = detectTopicBoundaries(segments);
+
+        expect(boundaries).toHaveLength(0);
+      });
+    });
+
+    describe("with transition keywords", () => {
+      it('should detect "next topic" keyword', () => {
+        const segments: TranscriptSegment[] = [
+          createSegment("Introduction to the topic", 0, 2000),
+          createSegment("On to the next topic we have", 2000, 2000),
+        ];
+
+        const boundaries = detectTopicBoundaries(segments);
+
+        expect(boundaries).toHaveLength(1);
+        expect(boundaries[0]).toEqual({
+          segmentIndex: 1,
+          offsetMs: 2000,
+          reason: "keyword",
+        });
+      });
+
+      it('should detect "moving on" keyword', () => {
+        const segments: TranscriptSegment[] = [
+          createSegment("Some content here", 0, 2000),
+          createSegment("Now moving on to something else", 2000, 2000),
+        ];
+
+        const boundaries = detectTopicBoundaries(segments);
+
+        expect(boundaries).toHaveLength(1);
+        expect(boundaries[0].reason).toBe("keyword");
+      });
+
+      it('should detect "let\'s talk about" keyword', () => {
+        const segments: TranscriptSegment[] = [
+          createSegment("Previous topic content", 0, 2000),
+          createSegment("Let's talk about a new subject", 2000, 2000),
+        ];
+
+        const boundaries = detectTopicBoundaries(segments);
+
+        expect(boundaries).toHaveLength(1);
+        expect(boundaries[0].reason).toBe("keyword");
+      });
+
+      it('should detect "another thing" keyword', () => {
+        const segments: TranscriptSegment[] = [
+          createSegment("Discussion point", 0, 2000),
+          createSegment("Another thing I want to mention", 2000, 2000),
+        ];
+
+        const boundaries = detectTopicBoundaries(segments);
+
+        expect(boundaries).toHaveLength(1);
+        expect(boundaries[0].reason).toBe("keyword");
+      });
+
+      it('should detect "switching gears" keyword', () => {
+        const segments: TranscriptSegment[] = [
+          createSegment("Technical discussion", 0, 2000),
+          createSegment("Now switching gears to business", 2000, 2000),
+        ];
+
+        const boundaries = detectTopicBoundaries(segments);
+
+        expect(boundaries).toHaveLength(1);
+        expect(boundaries[0].reason).toBe("keyword");
+      });
+
+      it("should be case-insensitive for keyword detection", () => {
+        const segments: TranscriptSegment[] = [
+          createSegment("Content", 0, 2000),
+          createSegment("MOVING ON to the next item", 2000, 2000),
+        ];
+
+        const boundaries = detectTopicBoundaries(segments);
+
+        expect(boundaries).toHaveLength(1);
+        expect(boundaries[0].reason).toBe("keyword");
+      });
+
+      it("should detect multiple keyword boundaries", () => {
+        const segments: TranscriptSegment[] = [
+          createSegment("Intro", 0, 2000),
+          createSegment("Now let's discuss something", 2000, 2000),
+          createSegment("More content", 4000, 2000),
+          createSegment("Another point to consider", 6000, 2000),
+        ];
+
+        const boundaries = detectTopicBoundaries(segments);
+
+        expect(boundaries).toHaveLength(2);
+        expect(boundaries[0].segmentIndex).toBe(1);
+        expect(boundaries[1].segmentIndex).toBe(3);
+      });
+    });
+
+    describe("time gap takes precedence over keyword", () => {
+      it("should not double-count when both time gap and keyword are present", () => {
+        const segments: TranscriptSegment[] = [
+          createSegment("First", 0, 1000),
+          createSegment("Moving on to the next topic", 5000, 2000),
+        ];
+
+        const boundaries = detectTopicBoundaries(segments);
+
+        expect(boundaries).toHaveLength(1);
+        expect(boundaries[0].reason).toBe("time_gap");
+      });
+    });
+
+    describe("edge cases", () => {
+      it("should return empty array for empty segments", () => {
+        const boundaries = detectTopicBoundaries([]);
+
+        expect(boundaries).toEqual([]);
+      });
+
+      it("should return empty array for single segment", () => {
+        const segments: TranscriptSegment[] = [
+          createSegment("Only segment", 0, 2000),
+        ];
+
+        const boundaries = detectTopicBoundaries(segments);
+
+        expect(boundaries).toEqual([]);
+      });
+
+      it("should handle segments with zero duration", () => {
+        const segments: TranscriptSegment[] = [
+          createSegment("First", 0, 0),
+          createSegment("Second", 4000, 2000),
+        ];
+
+        const boundaries = detectTopicBoundaries(segments);
+
+        expect(boundaries).toHaveLength(1);
+        expect(boundaries[0].reason).toBe("time_gap");
+      });
+
+      it("should not detect boundary in first segment", () => {
+        const segments: TranscriptSegment[] = [
+          createSegment("Moving on to the topic", 0, 2000),
+          createSegment("Normal content", 2000, 2000),
+        ];
+
+        const boundaries = detectTopicBoundaries(segments);
+
+        expect(boundaries.every((b) => b.segmentIndex > 0)).toBe(true);
+      });
+    });
+  });
+
+  describe("chunkTranscript", () => {
+    describe("with timestamps (topic boundary chunking)", () => {
+      it("should return single chunk when no boundaries detected", () => {
+        const segments: TranscriptSegment[] = [
+          createSegment("First part", 0, 2000),
+          createSegment("second part", 2000, 2000),
+          createSegment("third part", 4000, 2000),
+        ];
+
+        const chunks = chunkTranscript(segments, true);
+
+        expect(chunks).toHaveLength(1);
+        expect(chunks[0].text).toBe("First part second part third part");
+        expect(chunks[0].startMs).toBe(0);
+        expect(chunks[0].endMs).toBe(6000);
+        expect(chunks[0].segmentIndices).toEqual([0, 1, 2]);
+      });
+
+      it("should create multiple chunks at topic boundaries", () => {
+        const segments: TranscriptSegment[] = [
+          createSegment("Topic one content", 0, 2000),
+          createSegment("More topic one", 2000, 2000),
+          createSegment("Topic two content", 8000, 2000),
+          createSegment("More topic two", 10000, 2000),
+        ];
+
+        const chunks = chunkTranscript(segments, true);
+
+        expect(chunks).toHaveLength(2);
+        expect(chunks[0].text).toBe("Topic one content More topic one");
+        expect(chunks[0].startMs).toBe(0);
+        expect(chunks[0].endMs).toBe(4000);
+        expect(chunks[0].segmentIndices).toEqual([0, 1]);
+        expect(chunks[1].text).toBe("Topic two content More topic two");
+        expect(chunks[1].startMs).toBe(8000);
+        expect(chunks[1].endMs).toBe(12000);
+        expect(chunks[1].segmentIndices).toEqual([2, 3]);
+      });
+
+      it("should handle three or more chunks", () => {
+        const segments: TranscriptSegment[] = [
+          createSegment("A", 0, 1000),
+          createSegment("B", 5000, 1000),
+          createSegment("C", 10000, 1000),
+        ];
+
+        const chunks = chunkTranscript(segments, true);
+
+        expect(chunks).toHaveLength(3);
+        expect(chunks[0].text).toBe("A");
+        expect(chunks[1].text).toBe("B");
+        expect(chunks[2].text).toBe("C");
+      });
+
+      it("should include all segments in segmentIndices", () => {
+        const segments: TranscriptSegment[] = [
+          createSegment("One", 0, 1000),
+          createSegment("Two", 1000, 1000),
+          createSegment("Three", 6000, 1000),
+        ];
+
+        const chunks = chunkTranscript(segments, true);
+        const allIndices = chunks.flatMap((c) => c.segmentIndices || []);
+        expect(allIndices.sort()).toEqual([0, 1, 2]);
+      });
+
+      it("should return empty array for empty segments", () => {
+        const chunks = chunkTranscript([], true);
+        expect(chunks).toEqual([]);
+      });
+
+      it("should handle single segment", () => {
+        const segments: TranscriptSegment[] = [
+          createSegment("Only one", 0, 5000),
+        ];
+
+        const chunks = chunkTranscript(segments, true);
+
+        expect(chunks).toHaveLength(1);
+        expect(chunks[0].text).toBe("Only one");
+        expect(chunks[0].startMs).toBe(0);
+        expect(chunks[0].endMs).toBe(5000);
+      });
+    });
+
+    describe("fallback without timestamps (character-based chunking)", () => {
+      it("should chunk by characters when hasTimestamps is false", () => {
+        const segments: TranscriptSegment[] = [
+          createSegment("Short text", 0, 1000),
+        ];
+
+        const chunks = chunkTranscript(segments, false);
+
+        expect(chunks).toHaveLength(1);
+        expect(chunks[0].text).toBe("Short text");
+        expect(chunks[0].startMs).toBeUndefined();
+        expect(chunks[0].endMs).toBeUndefined();
+      });
+
+      it("should handle string input directly", () => {
+        const text = "This is a plain text without segments";
+        const chunks = chunkTranscript(text, false);
+
+        expect(chunks).toHaveLength(1);
+        expect(chunks[0].text).toBe(text);
+      });
+
+      it("should chunk long text into multiple pieces", () => {
+        // Create a string longer than 7000 characters using a loop
+        let longText = "";
+        for (let i = 0; i < 2000; i++) {
+          longText += "word ";
+        }
+
+        const chunks = chunkTranscript(longText, false);
+
+        expect(chunks.length).toBeGreaterThan(1);
+        expect(chunks[0].text.length).toBeLessThanOrEqual(7000);
+      });
+
+      it("should not have timestamps in character-based chunks", () => {
+        // Create moderately long text
+        let longText = "";
+        for (let i = 0; i < 2000; i++) {
+          longText += "a";
+        }
+        longText = longText + longText + longText + longText; // ~8000 chars
+
+        const chunks = chunkTranscript(longText, false);
+
+        chunks.forEach((chunk) => {
+          expect(chunk.startMs).toBeUndefined();
+          expect(chunk.endMs).toBeUndefined();
+          expect(chunk.segmentIndices).toBeUndefined();
+        });
+      });
+
+      it("should return single chunk for text shorter than chunk size", () => {
+        const shortText = "This is a short text.";
+        const chunks = chunkTranscript(shortText, false);
+
+        expect(chunks).toHaveLength(1);
+        expect(chunks[0].text).toBe(shortText);
+      });
+
+      it("should return empty array for empty string", () => {
+        const chunks = chunkTranscript("", false);
+        expect(chunks).toEqual([]);
+      });
+
+      it("should extract text from segments when hasTimestamps is false", () => {
+        const segments: TranscriptSegment[] = [
+          createSegment("Hello", 0, 1000),
+          createSegment("World", 1000, 1000),
+        ];
+
+        const chunks = chunkTranscript(segments, false);
+
+        expect(chunks).toHaveLength(1);
+        expect(chunks[0].text).toBe("Hello World");
+      });
+    });
+
+    describe("edge cases", () => {
+      it("should treat string input as non-timestamped regardless of flag", () => {
+        const text = "Plain text input";
+        const chunks = chunkTranscript(text, true);
+
+        expect(chunks).toHaveLength(1);
+        expect(chunks[0].text).toBe(text);
+        expect(chunks[0].startMs).toBeUndefined();
+      });
+
+      it("should preserve all text content", () => {
+        const segments: TranscriptSegment[] = [
+          createSegment("First", 0, 1000),
+          createSegment("Second", 1000, 1000),
+          createSegment("Third", 6000, 1000),
+          createSegment("Fourth", 7000, 1000),
+        ];
+
+        const chunks = chunkTranscript(segments, true);
+        const allText = chunks.map((c) => c.text).join(" ");
+
+        expect(allText).toContain("First");
+        expect(allText).toContain("Second");
+        expect(allText).toContain("Third");
+        expect(allText).toContain("Fourth");
+      });
+    });
+  });
+});

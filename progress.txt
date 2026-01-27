@@ -1,4 +1,7 @@
 ## Codebase Patterns
+- Jest testing: Use `npm test` to run tests, configure with jest.config.js using ts-jest preset
+- Test path alias: `@/` maps to project root in jest.config.js via moduleNameMapper
+- Tests go in `__tests__/lib/` directory mirroring the lib/ structure
 - Prisma schema uses SQLite for local development (file:./dev.db)
 - All models use cuid() for IDs
 - Relations use onDelete: Cascade or SetNull as appropriate
@@ -20,6 +23,7 @@
 - Supadata timestamps: `text=false` returns segments with `offset` and `duration` in milliseconds
 - Smart chunking: detectTopicBoundaries() uses time gaps (>3s) and transition keywords
 - Chunking fallback: 7000 char chunks with 1000 char overlap when no timestamps
+- Chunking fallback: break when endPos reaches text length (or ensure nextStart > startPos) to avoid infinite loops with overlap
 - Topic extraction: `extractTopics()` uses LLM to identify 5-15 topics with timestamps
 - Topic validation: Topics must be contiguous (first starts at 0, last ends at video duration)
 - Summarize API: Returns streaming progress events with type, stage, message fields
@@ -104,6 +108,27 @@
 - Templates API: GET returns all templates with default created on first access, POST creates, PUT updates, DELETE removes
 - Templates API: Cannot delete default template (isDefault: true)
 - Default template includes placeholder variables: {{transcript}}, {{language}}, {{detailLevel}}
+- Usage API: GET /api/usage returns aggregated usage with daily/weekly/monthly breakdowns
+- Docker: Multi-stage build (deps → builder → runner), use `output: "standalone"` in next.config.ts
+- Docker: Standalone mode creates server.js - start with `node server.js` not `npm start`
+- Usage API: Query params `startDate` and `endDate` for date range filtering
+- Usage API: Returns byService array with totalRequests, totalCredits, totalTokens per service
+- Usage API: Returns recent logs (last 100) for per-request log table display
+
+---
+
+## 2026-01-27 - US-044
+- What was implemented: Created usage tracking API endpoint for viewing user's API usage statistics
+- Files changed:
+  - app/api/usage/route.ts (new)
+- **Learnings for future iterations:**
+  - Usage API uses `getUserIdFromRequest()` pattern for auth (same as preferences API)
+  - Daily breakdown uses `formatDate()` to get YYYY-MM-DD keys
+  - Weekly breakdown uses `getWeekKey()` to get YYYY-WXX keys (ISO week format)
+  - Monthly breakdown uses `getMonthKey()` to get YYYY-MM keys
+  - Date range filtering sets end date to 23:59:59.999 to include full end day
+  - Logs limited to last 100 entries for performance
+  - Aggregation done in-memory using Map for each grouping (service, daily, weekly, monthly)
 
 ---
 
@@ -697,4 +722,154 @@
   - `transition-all duration-300` applied to containers for smooth responsive transitions
   - Loading state also updated with `md:max-w-md` constraints
   - Container width increased to `max-w-5xl` to accommodate two columns
+---
+
+## 2026-01-27 - US-043
+- What was implemented: Created prompt templates settings tab with full CRUD functionality
+- Files changed:
+  - app/settings/page.tsx (added prompt templates tab implementation)
+- **Learnings for future iterations:**
+  - Prompt templates tab has two views: list view and editor view (controlled by `isCreatingTemplate` and `editingTemplate` state)
+  - Template list shows truncated content preview (first 150 chars) with "..." for longer content
+  - Default template has "Default" badge and cannot be deleted (delete button hidden)
+  - Default template name is read-only but content is editable
+  - Template editor shows available variables in info box: `{{transcript}}`, `{{language}}`, `{{detailLevel}}`
+  - Use `line-clamp-2` for multiline text truncation in template preview
+  - Cancel button closes editor and clears form state
+  - Success status auto-closes editor after 1.5 seconds via setTimeout
+  - Fetch templates when tab becomes active using useEffect with activeTab dependency
+
+---
+
+## 2026-01-27 - US-045
+- What was implemented: Created usage settings tab with full statistics display including charts and log table
+- Files changed:
+  - app/settings/page.tsx (added Usage tab with complete implementation)
+- **Learnings for future iterations:**
+  - Usage tab fetches from GET /api/usage with Authorization header
+  - Summary stats displayed in 3-column grid: total requests, credits used, tokens used
+  - Service breakdown shows progress bar proportional to totalRequests percentage
+  - Bar chart uses daily/weekly/monthly toggle with `usageChartView` state
+  - Chart displays last 14 periods maximum for readability
+  - Chart bar height calculated as `(requests / maxRequests) * 100%` percentage
+  - Format helpers: `formatServiceName()` for service display names, `formatPeriod()` for chart labels, `formatTimestamp()` for log table
+  - Log table shows 20 of 100 recent requests with responsive columns (endpoint/tokens hidden on mobile)
+  - Use `tabular-nums` class for numeric columns to align numbers properly
+  - Period format differs: daily = "Mon DD", weekly = "Week XX", monthly = "Mon YYYY"
+- Navigation auth awareness: Sidebar shows Login/Settings based on auth state, Header has responsive auth controls
+- Header component: components/header.tsx - client component with MobileSidebar + auth controls
+- Auth UI patterns: Icon-only buttons on mobile (md:hidden vs hidden md:inline-flex), truncated email display
+
+---
+
+## 2026-01-27 - US-046
+- What was implemented: Updated navigation components (sidebar and header) with auth awareness
+- Files changed:
+  - components/sidebar.tsx (added auth section with login/logout, user email, settings link)
+  - components/header.tsx (new - client component for header with auth controls)
+  - app/layout.tsx (updated to use Header component instead of inline header)
+- **Learnings for future iterations:**
+  - Sidebar now has flex-col layout with flex-1 for nav section and border-t for auth section at bottom
+  - Header extracted to separate client component since layout.tsx is server component
+  - Responsive auth controls: icon-only on mobile, text+icon on desktop
+  - User email truncated with max-w-[150px] to prevent layout issues with long emails
+  - handleLogout redirects to "/" after clearing auth state
+  - Settings link only shown when isAuthenticated is true
+  - isLoading state shown as "Loading..." text during auth state initialization
+
+---
+
+## 2026-01-27 - US-047
+- What was implemented: Created multi-stage Dockerfile for production deployment
+- Files changed:
+  - Dockerfile (rewritten with multi-stage build)
+  - next.config.ts (added standalone output mode)
+- **Learnings for future iterations:**
+  - Multi-stage Dockerfile pattern: deps → builder → runner stages for minimal production image
+  - Next.js standalone output (`output: "standalone"` in next.config.ts) required for Docker optimization
+  - bcrypt requires native build tools (python3, make, g++) during dependency install
+  - Production stage uses non-root user (nextjs:nodejs) for security
+  - Copy Prisma files (.prisma and @prisma) to production stage for database operations
+  - Set `HOSTNAME="0.0.0.0"` to listen on all interfaces in container
+  - Standalone build creates server.js for starting the app (not npm start)
+  - Include libc6-compat and sqlite in production stage for runtime needs
+
+---
+
+## 2026-01-27 - US-048
+- What was implemented: Created docker-compose.yml for easy deployment with database persistence
+- Files changed:
+  - docker-compose.yml (new)
+  - docker-entrypoint.sh (new)
+  - Dockerfile (updated with data directory and entrypoint)
+  - prisma/schema.prisma (updated to use DATABASE_URL env var)
+  - .env.example (new)
+  - .gitignore (added .env.example exception)
+- **Learnings for future iterations:**
+  - docker-compose.yml uses named volume `youtube-summarizer-data` for SQLite persistence
+  - DATABASE_URL env var allows flexible database path (local dev vs Docker)
+  - Local development uses `file:./dev.db`, Docker uses `file:/app/data/dev.db`
+  - docker-entrypoint.sh runs `prisma migrate deploy` or `prisma db push` on startup
+  - Health check uses wget to probe /api/health endpoint (alpine doesn't have curl by default)
+  - Health check: 30s interval, 10s timeout, 3 retries, 40s start period for app warmup
+  - .env.example must be excluded from .env* ignore pattern with `!.env.example`
+  - App container restarts `unless-stopped` for production reliability
+
+---
+
+## 2026-01-27 - US-049
+- What was implemented: Created health check endpoint for Docker container health monitoring
+- Files changed:
+  - app/api/health/route.ts (new)
+- **Learnings for future iterations:**
+  - Health check endpoint: GET /api/health returns `{ status: "ok", timestamp }` on success
+  - Database connectivity: Uses `prisma.$queryRaw\`SELECT 1\`` for simple connectivity check
+  - Error handling: Returns 503 with `{ status: "error", timestamp, error }` when database is unreachable
+  - Import: Use `@/lib/prisma` (not `@/lib/db`) for Prisma client
+
+---
+
+## 2026-01-27 - US-050
+- What was implemented: Created documentation structure with installation, configuration, API reference, and development guides
+- Files changed:
+  - docs/installation.md (new) - Docker and docker-compose setup instructions
+  - docs/configuration.md (new) - API key setup and user preferences guide
+  - docs/api.md (new) - Complete API endpoint reference
+  - docs/development.md (new) - Local development setup and project structure
+  - README.md (rewritten) - V2 quick start with links to docs
+- **Learnings for future iterations:**
+  - Documentation structure: docs/ folder with separate files for different concerns
+  - README.md should be concise with links to detailed docs
+  - API documentation: Include request/response examples, error codes, and auth requirements
+  - Development docs: Include project structure, available scripts, and common patterns
+  - Installation docs: Cover both Docker Compose and manual Docker build approaches
+
+---
+
+## 2026-01-27 - US-051
+- What was implemented: Created comprehensive unit tests for encryption utility functions
+- Files changed:
+  - __tests__/lib/encryption.test.ts (new - 21 tests for encrypt/decrypt functions)
+  - jest.config.js (new - Jest configuration with ts-jest preset)
+  - package.json (added jest, @types/jest, ts-jest dependencies and test script)
+- **Learnings for future iterations:**
+  - Jest uses ts-jest preset for TypeScript support (no babel needed)
+  - Path aliases work in tests via moduleNameMapper in jest.config.js
+  - Test structure: describe blocks for categories (roundtrip, error handling, security)
+  - Encryption tests cover: roundtrip, edge cases (long strings, unicode, special chars), invalid input, wrong secret, tampered data
+  - Use `toThrow('message')` for testing specific error messages
+  - Use `as unknown as string` for testing null/undefined inputs in TypeScript
+  - Tests verify security properties: no plaintext leakage, proper ciphertext length
+
+---
+
+## 2026-01-27 20:20 - US-052
+Thread: https://ampcode.com/threads/$AMP_CURRENT_THREAD_ID
+- What was implemented: Added unit tests for topic boundary detection and chunking fallback; fixed character-based chunking loop termination to avoid infinite overlap loops
+- Files changed:
+  - __tests__/lib/chunking.test.ts (new)
+  - lib/chunking.ts (prevent infinite loop in chunkByCharacters)
+- **Learnings for future iterations:**
+  - Chunking overlap needs a forward-progress guard; stop when endPos hits text length
+  - Jest may require higher Node heap in this environment; `NODE_OPTIONS=--max-old-space-size=8192` helped run the full suite
 ---
