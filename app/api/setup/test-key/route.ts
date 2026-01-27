@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { Supadata } from "@supadata/js";
+import OpenAI from "openai";
 
 export async function POST(request: NextRequest) {
   try {
@@ -35,6 +36,43 @@ export async function POST(request: NextRequest) {
         const errorMessage = apiError instanceof Error ? apiError.message : "Unknown error";
         // Check if it's an auth error
         if (errorMessage.includes("401") || errorMessage.includes("unauthorized") || errorMessage.includes("invalid")) {
+          return NextResponse.json(
+            { success: false, error: "Invalid API key" },
+            { status: 401 }
+          );
+        }
+        // Other errors might be network issues but key could still be valid
+        return NextResponse.json(
+          { success: false, error: `API test failed: ${errorMessage}` },
+          { status: 400 }
+        );
+      }
+    }
+
+    if (service === "zai") {
+      // Test Z.AI API key by making a simple completion request
+      const client = new OpenAI({
+        apiKey: apiKey,
+        baseURL: "https://api.z.ai/api/paas/v4/",
+      });
+
+      try {
+        // Make a minimal test request to validate the key
+        const completion = await client.chat.completions.create({
+          model: "glm-4.7",
+          messages: [{ role: "user", content: "Hello" }],
+          max_tokens: 5,
+        });
+
+        // If we get here without error, the key is valid
+        return NextResponse.json({
+          success: true,
+          message: "Z.AI API key is valid",
+        });
+      } catch (apiError: unknown) {
+        const errorMessage = apiError instanceof Error ? apiError.message : "Unknown error";
+        // Check if it's an auth error
+        if (errorMessage.includes("401") || errorMessage.includes("unauthorized") || errorMessage.includes("invalid") || errorMessage.includes("Incorrect API key")) {
           return NextResponse.json(
             { success: false, error: "Invalid API key" },
             { status: 401 }

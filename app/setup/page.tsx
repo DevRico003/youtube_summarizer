@@ -28,6 +28,12 @@ export default function SetupWizard() {
   const [supadataError, setSupadataError] = useState("")
   const [supadataSaving, setSupadataSaving] = useState(false)
 
+  // Step 3: Z.AI API key state
+  const [zaiKey, setZaiKey] = useState("")
+  const [zaiStatus, setZaiStatus] = useState<"idle" | "testing" | "success" | "error">("idle")
+  const [zaiError, setZaiError] = useState("")
+  const [zaiSaving, setZaiSaving] = useState(false)
+
   // Generate initial secret on mount
   useEffect(() => {
     setSecret(generateSecret())
@@ -127,6 +133,79 @@ export default function SetupWizard() {
       handleNext()
     } finally {
       setSupadataSaving(false)
+    }
+  }
+
+  // Test Z.AI API key
+  const handleTestZai = async () => {
+    if (!zaiKey.trim()) return
+
+    setZaiStatus("testing")
+    setZaiError("")
+
+    try {
+      const response = await fetch("/api/setup/test-key", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ service: "zai", apiKey: zaiKey }),
+      })
+
+      const data = await response.json()
+
+      if (data.success) {
+        setZaiStatus("success")
+      } else {
+        setZaiStatus("error")
+        setZaiError(data.error || "Validation failed")
+      }
+    } catch (error) {
+      setZaiStatus("error")
+      setZaiError("Failed to test API key")
+    }
+  }
+
+  // Save Z.AI API key and proceed to next step
+  const handleSaveZai = async () => {
+    setZaiSaving(true)
+
+    try {
+      const response = await fetch("/api/setup/save-key", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ service: "zai", apiKey: zaiKey }),
+      })
+
+      const data = await response.json()
+
+      if (data.success) {
+        handleNext()
+      } else {
+        setZaiError(data.error || "Failed to save API key")
+      }
+    } catch (error) {
+      setZaiError("Failed to save API key")
+    } finally {
+      setZaiSaving(false)
+    }
+  }
+
+  // Skip Z.AI and proceed to next step
+  const handleSkipZai = async () => {
+    setZaiSaving(true)
+
+    try {
+      // Call save-key with empty key to signal skip
+      await fetch("/api/setup/save-key", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ service: "zai", apiKey: "" }),
+      })
+      handleNext()
+    } catch (error) {
+      // Even if the call fails, we can still proceed since skipping is optional
+      handleNext()
+    } finally {
+      setZaiSaving(false)
     }
   }
 
@@ -405,10 +484,108 @@ export default function SetupWizard() {
           )}
 
           {currentStep === 3 && (
-            <div className="text-center text-muted-foreground py-8">
-              <p>Step 3: Z.AI API Key</p>
-              <p className="text-sm mt-2">Coming in US-008</p>
-            </div>
+            <>
+              <div className="flex items-center space-x-2 text-lg font-medium">
+                <Key className="h-5 w-5" />
+                <span>Step 3: Z.AI API Key</span>
+              </div>
+
+              <p className="text-sm text-muted-foreground">
+                Z.AI provides access to GLM-4.7, a powerful reasoning model. Get your API key from{" "}
+                <a
+                  href="https://z.ai"
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="text-primary hover:underline"
+                >
+                  z.ai
+                </a>
+              </p>
+
+              {/* API Key Input */}
+              <div className="space-y-2">
+                <label className="text-sm font-medium">API Key</label>
+                <div className="flex space-x-2">
+                  <Input
+                    type="password"
+                    value={zaiKey}
+                    onChange={(e) => {
+                      setZaiKey(e.target.value)
+                      setZaiStatus("idle")
+                      setZaiError("")
+                    }}
+                    placeholder="Enter your Z.AI API key"
+                    className="flex-1"
+                  />
+                  <Button
+                    variant="outline"
+                    onClick={handleTestZai}
+                    disabled={!zaiKey.trim() || zaiStatus === "testing"}
+                  >
+                    {zaiStatus === "testing" ? (
+                      <Loader2 className="h-4 w-4 animate-spin" />
+                    ) : (
+                      "Test"
+                    )}
+                  </Button>
+                </div>
+
+                {/* Status indicator */}
+                {zaiStatus === "success" && (
+                  <div className="flex items-center space-x-2 text-sm text-green-600">
+                    <CheckCircle2 className="h-4 w-4" />
+                    <span>API key is valid</span>
+                  </div>
+                )}
+                {zaiStatus === "error" && (
+                  <div className="flex items-center space-x-2 text-sm text-destructive">
+                    <XCircle className="h-4 w-4" />
+                    <span>{zaiError}</span>
+                  </div>
+                )}
+              </div>
+
+              {/* Info box */}
+              <div className="bg-muted rounded-lg p-4 space-y-2">
+                <h4 className="font-medium text-sm">Why Z.AI (GLM-4.7)?</h4>
+                <ul className="text-sm text-muted-foreground space-y-1 list-disc list-inside">
+                  <li>Primary model for summary generation</li>
+                  <li>Advanced reasoning and thinking capabilities</li>
+                  <li>Supports detailed topic extraction with timestamps</li>
+                </ul>
+                <p className="text-sm text-muted-foreground mt-2">
+                  <strong>Note:</strong> This key is optional. You can skip this step and configure it later in settings.
+                </p>
+              </div>
+
+              {/* Navigation */}
+              <div className="flex justify-between pt-4">
+                <Button variant="outline" onClick={handleBack}>
+                  <ChevronLeft className="mr-2 h-4 w-4" />
+                  Back
+                </Button>
+                <div className="flex space-x-2">
+                  <Button
+                    variant="ghost"
+                    onClick={handleSkipZai}
+                    disabled={zaiSaving}
+                  >
+                    <SkipForward className="mr-2 h-4 w-4" />
+                    Skip
+                  </Button>
+                  <Button
+                    onClick={handleSaveZai}
+                    disabled={!zaiKey.trim() || zaiSaving}
+                  >
+                    {zaiSaving ? (
+                      <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                    ) : null}
+                    Next
+                    <ChevronRight className="ml-2 h-4 w-4" />
+                  </Button>
+                </div>
+              </div>
+            </>
           )}
 
           {currentStep === 4 && (
