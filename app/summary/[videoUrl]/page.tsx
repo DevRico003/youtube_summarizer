@@ -4,7 +4,7 @@ import { useEffect, useState } from "react";
 import { useSearchParams } from "next/navigation";
 import { use } from "react";
 import ReactMarkdown from "react-markdown";
-import { Play, AlertCircle, X } from "lucide-react";
+import { Play, AlertCircle, X, Edit3, Check, Loader2 } from "lucide-react";
 import { Card, CardContent } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { ProgressStages, type Stage } from "@/components/ProgressStages";
@@ -12,6 +12,7 @@ import { Timeline } from "@/components/Timeline";
 import { ChapterLinks } from "@/components/ChapterLinks";
 import { TopicEditor } from "@/components/TopicEditor";
 import { extractVideoId } from "@/lib/youtube";
+import { useAuth } from "@/contexts/AuthContext";
 
 interface Topic {
   id: string;
@@ -50,7 +51,12 @@ export default function SummaryPage({ params }: PageProps) {
   const [errorDismissed, setErrorDismissed] = useState(false);
   const [currentStage, setCurrentStage] = useState<Stage | null>(null);
   const [videoId, setVideoId] = useState<string>("");
+  const [showTopicEditor, setShowTopicEditor] = useState(false);
+  const [editedTopics, setEditedTopics] = useState<Topic[] | null>(null);
+  const [isSaving, setIsSaving] = useState(false);
+  const [saveSuccess, setSaveSuccess] = useState(false);
 
+  const { isAuthenticated } = useAuth();
   const searchParams = useSearchParams();
   const detailLevel = parseInt(searchParams.get("detail") || "3", 10);
   const { videoUrl } = use(params);
@@ -179,11 +185,56 @@ export default function SummaryPage({ params }: PageProps) {
     );
   }
 
-  // Placeholder topic save handler (US-034 will implement actual saving)
-  const handleTopicSave = (topics: Topic[]) => {
-    console.log("Topics saved:", topics);
-    // TODO: Implement actual save in US-034
+  // Save topics via API
+  const handleTopicSave = async (topics: Topic[]) => {
+    if (!summary?.id || !isAuthenticated) return;
+
+    setIsSaving(true);
+    setSaveSuccess(false);
+
+    try {
+      const token = localStorage.getItem("token");
+      const response = await fetch("/api/topics/edit", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: `Bearer ${token}`,
+        },
+        body: JSON.stringify({
+          summaryId: summary.id,
+          topics: topics.map((t) => ({
+            topicId: t.id,
+            customTitle: t.title,
+            customStartMs: t.startMs,
+            customEndMs: t.endMs,
+          })),
+        }),
+      });
+
+      if (!response.ok) {
+        const errorData = await response.json();
+        throw new Error(errorData.error || "Failed to save topics");
+      }
+
+      // Update local state with edited topics
+      setEditedTopics(topics);
+      setSaveSuccess(true);
+
+      // Clear success indicator after 3 seconds
+      setTimeout(() => setSaveSuccess(false), 3000);
+    } catch (err) {
+      console.error("Error saving topics:", err);
+      setError(
+        err instanceof Error ? err.message : "Failed to save topic edits"
+      );
+      setErrorDismissed(false);
+    } finally {
+      setIsSaving(false);
+    }
   };
+
+  // Get the topics to display (edited or original)
+  const displayTopics = editedTopics || summary?.topics || [];
 
   return (
     <div className="min-h-screen bg-background p-4 transition-all duration-300">
@@ -246,22 +297,74 @@ export default function SummaryPage({ params }: PageProps) {
             )}
 
             {/* Timeline (conditional - only when hasTimestamps) */}
-            {summary?.hasTimestamps && summary.topics.length > 0 && videoDuration > 0 && (
+            {summary?.hasTimestamps && displayTopics.length > 0 && videoDuration > 0 && (
               <div className="py-2 transition-all duration-300">
                 <Timeline
-                  topics={summary.topics}
+                  topics={displayTopics}
                   videoDuration={videoDuration}
                   videoId={videoId}
                 />
               </div>
             )}
 
-            {/* Topic Editor - Desktop only, when hasTimestamps */}
-            {summary?.hasTimestamps && summary.topics.length > 0 && videoDuration > 0 && (
+            {/* Edit Topics Button - Mobile, when authenticated and hasTimestamps */}
+            {summary?.hasTimestamps && displayTopics.length > 0 && videoDuration > 0 && isAuthenticated && (
+              <div className="md:hidden">
+                <Button
+                  variant={showTopicEditor ? "secondary" : "outline"}
+                  size="sm"
+                  onClick={() => setShowTopicEditor(!showTopicEditor)}
+                  className="w-full"
+                >
+                  <Edit3 className="w-4 h-4 mr-2" />
+                  {showTopicEditor ? "Hide Topic Editor" : "Edit Topics"}
+                </Button>
+              </div>
+            )}
+
+            {/* Topic Editor - Mobile, toggleable */}
+            {summary?.hasTimestamps && displayTopics.length > 0 && videoDuration > 0 && showTopicEditor && (
+              <Card className="md:hidden transition-all duration-300">
+                <CardContent className="pt-6">
+                  {isSaving && (
+                    <div className="flex items-center gap-2 text-sm text-muted-foreground mb-4">
+                      <Loader2 className="w-4 h-4 animate-spin" />
+                      Saving...
+                    </div>
+                  )}
+                  {saveSuccess && (
+                    <div className="flex items-center gap-2 text-sm text-green-600 dark:text-green-400 mb-4">
+                      <Check className="w-4 h-4" />
+                      Topics saved successfully!
+                    </div>
+                  )}
+                  <TopicEditor
+                    topics={displayTopics}
+                    videoDuration={videoDuration}
+                    onSave={handleTopicSave}
+                  />
+                </CardContent>
+              </Card>
+            )}
+
+            {/* Topic Editor - Desktop only, when authenticated and hasTimestamps */}
+            {summary?.hasTimestamps && displayTopics.length > 0 && videoDuration > 0 && isAuthenticated && (
               <Card className="hidden md:block transition-all duration-300">
                 <CardContent className="pt-6">
+                  {isSaving && (
+                    <div className="flex items-center gap-2 text-sm text-muted-foreground mb-4">
+                      <Loader2 className="w-4 h-4 animate-spin" />
+                      Saving...
+                    </div>
+                  )}
+                  {saveSuccess && (
+                    <div className="flex items-center gap-2 text-sm text-green-600 dark:text-green-400 mb-4">
+                      <Check className="w-4 h-4" />
+                      Topics saved successfully!
+                    </div>
+                  )}
                   <TopicEditor
-                    topics={summary.topics}
+                    topics={displayTopics}
                     videoDuration={videoDuration}
                     onSave={handleTopicSave}
                   />
@@ -280,10 +383,10 @@ export default function SummaryPage({ params }: PageProps) {
           {/* Right Column: Chapter Links + Summary Content */}
           <div className="flex-1 space-y-4 mt-4 md:mt-0 transition-all duration-300">
             {/* Chapter Links */}
-            {summary?.topics && summary.topics.length > 0 && (
+            {displayTopics.length > 0 && (
               <Card className="transition-all duration-300">
                 <CardContent className="pt-6">
-                  <ChapterLinks topics={summary.topics} videoId={videoId} />
+                  <ChapterLinks topics={displayTopics} videoId={videoId} />
                 </CardContent>
               </Card>
             )}
