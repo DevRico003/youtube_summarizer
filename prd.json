@@ -650,7 +650,7 @@
         "Verify in browser using agent-browser skill"
       ],
       "priority": 39,
-      "passes": false,
+      "passes": true,
       "notes": ""
     },
     {
@@ -667,7 +667,7 @@
         "Verify in browser using agent-browser skill"
       ],
       "priority": 40,
-      "passes": false,
+      "passes": true,
       "notes": ""
     },
     {

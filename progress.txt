@@ -88,6 +88,49 @@
 - Preferences API: Uses Prisma upsert for create-or-update behavior on POST
 - Home page preferences: Fetch from `/api/preferences` on mount when `isAuthenticated` (via useAuth hook)
 - Home page preferences: Wait for `authLoading` to complete, use `preferencesLoaded` flag to prevent duplicate fetches
+- Settings page: Protected route pattern - check `isLoading` and `isAuthenticated` from `useAuth()`, redirect to /login if not authenticated
+- Settings page: Tab navigation uses array of tab objects with id, label, icon, description for easy extension
+- Settings page: Responsive tabs - horizontal scrollable on mobile, vertical sidebar on desktop (md breakpoint)
+- API Keys settings: GET /api/settings/api-keys returns masked keys (last 4 chars visible)
+- API Keys settings: DELETE /api/settings/api-keys?service=xxx removes a key from AppConfig
+- API Keys settings: Uses `maskApiKey()` helper to show bullet points + last 4 chars
+- UI Label component: @radix-ui/react-label for form labels
+- API key form: Eye/EyeOff toggle for password visibility, Test/Save/Delete buttons per service
+
+---
+
+## 2026-01-27 - US-040
+- What was implemented: Created API keys settings tab with full CRUD functionality
+- Files changed:
+  - app/api/settings/api-keys/route.ts (new)
+  - app/settings/page.tsx (updated with API keys tab implementation)
+  - components/ui/label.tsx (new)
+  - package.json (added @radix-ui/react-label)
+- **Learnings for future iterations:**
+  - API Keys tab uses `apiKeys` state for server data, `apiKeyStates` for form state per service
+  - `maskApiKey()` shows bullet points (min 20) + last 4 chars for security display
+  - Test button reuses /api/setup/test-key endpoint from setup wizard
+  - Save button reuses /api/setup/save-key endpoint from setup wizard
+  - Delete button uses new DELETE /api/settings/api-keys?service=xxx endpoint
+  - Eye/EyeOff toggle for password visibility per input field
+  - Status indicators: green dot for configured, gray dot for not configured
+  - Form clears and refreshes after successful save
+  - Card per API service with test status feedback inline
+
+---
+
+## 2026-01-27 - US-039
+- What was implemented: Created settings page layout with protected route and tab navigation
+- Files changed:
+  - app/settings/page.tsx (new)
+- **Learnings for future iterations:**
+  - Protected route pattern: Check `isLoading` first (show loading), then `isAuthenticated` (redirect if false)
+  - Tab state management: `useState<Tab>` with union type for tab IDs
+  - Desktop tabs: Vertical list with full-width buttons, show description below label
+  - Mobile tabs: Horizontal scrollable with `overflow-x-auto` and `flex gap-2`
+  - Tab content rendering via `renderTabContent()` switch statement for clean separation
+  - Placeholder cards for each tab ready for future implementation (US-040 through US-045)
+  - Use `min-w-0` on flex children to prevent overflow issues with text truncation
 
 ---
 
