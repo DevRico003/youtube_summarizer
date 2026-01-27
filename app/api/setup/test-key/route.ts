@@ -1,6 +1,8 @@
 import { NextRequest, NextResponse } from "next/server";
 import { Supadata } from "@supadata/js";
 import OpenAI from "openai";
+import { GoogleGenerativeAI } from "@google/generative-ai";
+import Groq from "groq-sdk";
 
 export async function POST(request: NextRequest) {
   try {
@@ -73,6 +75,105 @@ export async function POST(request: NextRequest) {
         const errorMessage = apiError instanceof Error ? apiError.message : "Unknown error";
         // Check if it's an auth error
         if (errorMessage.includes("401") || errorMessage.includes("unauthorized") || errorMessage.includes("invalid") || errorMessage.includes("Incorrect API key")) {
+          return NextResponse.json(
+            { success: false, error: "Invalid API key" },
+            { status: 401 }
+          );
+        }
+        // Other errors might be network issues but key could still be valid
+        return NextResponse.json(
+          { success: false, error: `API test failed: ${errorMessage}` },
+          { status: 400 }
+        );
+      }
+    }
+
+    if (service === "gemini") {
+      // Test Gemini API key by making a simple content generation request
+      const genAI = new GoogleGenerativeAI(apiKey);
+      const model = genAI.getGenerativeModel({ model: "gemini-1.5-flash" });
+
+      try {
+        // Make a minimal test request to validate the key
+        await model.generateContent("Hello");
+
+        // If we get here without error, the key is valid
+        return NextResponse.json({
+          success: true,
+          message: "Gemini API key is valid",
+        });
+      } catch (apiError: unknown) {
+        const errorMessage = apiError instanceof Error ? apiError.message : "Unknown error";
+        // Check if it's an auth error
+        if (errorMessage.includes("401") || errorMessage.includes("API_KEY_INVALID") || errorMessage.includes("invalid")) {
+          return NextResponse.json(
+            { success: false, error: "Invalid API key" },
+            { status: 401 }
+          );
+        }
+        // Other errors might be network issues but key could still be valid
+        return NextResponse.json(
+          { success: false, error: `API test failed: ${errorMessage}` },
+          { status: 400 }
+        );
+      }
+    }
+
+    if (service === "groq") {
+      // Test Groq API key by making a simple completion request
+      const groq = new Groq({ apiKey });
+
+      try {
+        // Make a minimal test request to validate the key
+        await groq.chat.completions.create({
+          model: "llama-3.1-8b-instant",
+          messages: [{ role: "user", content: "Hello" }],
+          max_tokens: 5,
+        });
+
+        // If we get here without error, the key is valid
+        return NextResponse.json({
+          success: true,
+          message: "Groq API key is valid",
+        });
+      } catch (apiError: unknown) {
+        const errorMessage = apiError instanceof Error ? apiError.message : "Unknown error";
+        // Check if it's an auth error
+        if (errorMessage.includes("401") || errorMessage.includes("invalid_api_key") || errorMessage.includes("Invalid API Key")) {
+          return NextResponse.json(
+            { success: false, error: "Invalid API key" },
+            { status: 401 }
+          );
+        }
+        // Other errors might be network issues but key could still be valid
+        return NextResponse.json(
+          { success: false, error: `API test failed: ${errorMessage}` },
+          { status: 400 }
+        );
+      }
+    }
+
+    if (service === "openai") {
+      // Test OpenAI API key by making a simple completion request
+      const openai = new OpenAI({ apiKey });
+
+      try {
+        // Make a minimal test request to validate the key
+        await openai.chat.completions.create({
+          model: "gpt-4o-mini",
+          messages: [{ role: "user", content: "Hello" }],
+          max_tokens: 5,
+        });
+
+        // If we get here without error, the key is valid
+        return NextResponse.json({
+          success: true,
+          message: "OpenAI API key is valid",
+        });
+      } catch (apiError: unknown) {
+        const errorMessage = apiError instanceof Error ? apiError.message : "Unknown error";
+        // Check if it's an auth error
+        if (errorMessage.includes("401") || errorMessage.includes("Incorrect API key") || errorMessage.includes("invalid_api_key")) {
           return NextResponse.json(
             { success: false, error: "Invalid API key" },
             { status: 401 }
