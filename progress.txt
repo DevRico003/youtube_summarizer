@@ -96,6 +96,47 @@
 - API Keys settings: Uses `maskApiKey()` helper to show bullet points + last 4 chars
 - UI Label component: @radix-ui/react-label for form labels
 - API key form: Eye/EyeOff toggle for password visibility, Test/Save/Delete buttons per service
+- UserPreference: Now includes `thinkingMode` boolean field (default false) for GLM-4.7 thinking mode preference
+- Preferences tab: Uses LANGUAGES and MODELS constants for dropdown options
+- Preferences tab: Track `originalPreferences` to enable/disable Save button based on changes
+- Preferences tab: Case blocks with const declarations need braces `case "foo": { const x = ...; return ...; }`
+- PromptTemplate model: Uses @@unique([userId, name]) for unique template names per user
+- Templates API: GET returns all templates with default created on first access, POST creates, PUT updates, DELETE removes
+- Templates API: Cannot delete default template (isDefault: true)
+- Default template includes placeholder variables: {{transcript}}, {{language}}, {{detailLevel}}
+
+---
+
+## 2026-01-27 - US-042
+- What was implemented: Created prompt templates API with full CRUD endpoints
+- Files changed:
+  - prisma/schema.prisma (added PromptTemplate model with user relation)
+  - prisma/migrations/20260127172033_add_prompt_templates/migration.sql (new)
+  - app/api/templates/route.ts (new - GET/POST/PUT/DELETE endpoints)
+- **Learnings for future iterations:**
+  - PromptTemplate model uses @@unique([userId, name]) to prevent duplicate names per user
+  - GET endpoint creates default template on first access if none exist
+  - Default template marked with isDefault: true cannot be deleted
+  - PUT endpoint validates template ownership before allowing updates
+  - Use 409 Conflict for duplicate name validation errors
+  - Template variables: {{transcript}}, {{language}}, {{detailLevel}} for prompt customization
+
+---
+
+## 2026-01-27 - US-041
+- What was implemented: Created preferences settings tab with language selector, detail level slider, model selector, and thinking mode toggle
+- Files changed:
+  - prisma/schema.prisma (added thinkingMode field to UserPreference)
+  - prisma/migrations/20260127171521_add_thinking_mode/migration.sql (new)
+  - app/api/preferences/route.ts (updated to handle thinkingMode)
+  - app/settings/page.tsx (added full preferences tab implementation)
+- **Learnings for future iterations:**
+  - Preferences tab reuses DetailSlider component but creates simple Select for model instead of full ModelSelector
+  - Track original preferences to enable Save button only when changes are made
+  - Show thinking mode toggle only when GLM-4.7 is selected (check model.supportsThinking)
+  - Use case block braces `{ }` when declaring const variables in switch statements
+  - Preferences save uses POST to /api/preferences with full preferences object
+  - Success/error status with auto-dismiss after 3 seconds using setTimeout
 
 ---
 
