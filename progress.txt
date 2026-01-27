@@ -1,0 +1,395 @@
+## Codebase Patterns
+- Prisma schema uses SQLite for local development (file:./dev.db)
+- All models use cuid() for IDs
+- Relations use onDelete: Cascade or SetNull as appropriate
+- Typecheck via `npx tsc --noEmit`
+
+- V2 schema removes `language`, `mode`, `source` fields from Summary model; use `videoId` as unique key
+- Summary model now includes `transcript` and `hasTimestamps` fields
+- Use Node.js crypto module for AES-256-GCM encryption (no external deps needed)
+- AppConfig service uses Prisma upsert for idempotent setConfig operations
+- Middleware.ts goes in project root (not app folder) for Next.js
+- Setup wizard uses shadcn/ui components (Card, Button, Input) with Tailwind CSS
+- Use Web Crypto API (`crypto.getRandomValues`) for generating secrets in browser
+- API key test endpoints: POST to /api/setup/test-key with { service, apiKey }
+- API key save endpoints: POST to /api/setup/save-key with { service, apiKey }
+- Supadata SDK installed: @supadata/js for transcript fetching
+- Z.AI/GLM-4.7 uses OpenAI SDK with baseURL: https://api.z.ai/api/paas/v4/
+- Fallback models: Gemini (gemini-1.5-flash), Groq (llama-3.1-8b-instant), OpenAI (gpt-4o-mini)
+- Supadata transcript: Use `mode='native'` first (1 credit), fallback to `mode='auto'` for AI generation
+- Supadata timestamps: `text=false` returns segments with `offset` and `duration` in milliseconds
+- Smart chunking: detectTopicBoundaries() uses time gaps (>3s) and transition keywords
+- Chunking fallback: 7000 char chunks with 1000 char overlap when no timestamps
+- Topic extraction: `extractTopics()` uses LLM to identify 5-15 topics with timestamps
+- Topic validation: Topics must be contiguous (first starts at 0, last ends at video duration)
+- Summarize API: Returns streaming progress events with type, stage, message fields
+- Summarize API: Four stages - fetching_transcript, analyzing_topics, generating_summary, building_timeline
+- Summarize API: GET handler returns available models, POST handles summary generation
+- Auth deps: bcrypt@6.0.0 for password hashing, jsonwebtoken@9.0.3 for JWT tokens
+- Auth utilities: `hashPassword()`, `verifyPassword()`, `generateToken()`, `verifyToken()` in lib/auth.ts
+- JWT tokens use APP_SECRET env var as secret, expire in 7 days
+- bcrypt uses 12 salt rounds for password hashing
+- Auth API endpoints: POST /api/auth/register and POST /api/auth/login
+- Auth endpoints return { success, token, user: { id, email } } on success
+- Use email.toLowerCase() for case-insensitive email handling
+- Auth error responses use generic "Invalid email or password" for security (no user enumeration)
+- Login/Register pages: Store token and user in localStorage, redirect to "/" on success
+- AuthContext: Use `useAuth()` hook to access auth state (user, isAuthenticated, isLoading, login, logout)
+- AuthProvider wraps app via components/providers.tsx (client component wrapper pattern)
+- Timeline component: Use fixed positioning for tooltip with transform to center
+- Timeline colors: Array of 10 colors that cycle with modulo for consistent topic coloring
+
+- ChapterLinks: List display with formatted timestamps and YouTube timestamp links
+- YouTube timestamp format: `https://www.youtube.com/watch?v=${videoId}&t=${seconds}s`
+- TopicEditor: Editable titles (double-click), draggable boundaries, contiguous constraint enforcement
+- TopicEditor: Uses same TOPIC_COLORS palette as Timeline for visual consistency
+- ESLint: Using ESLint 9 with typescript-eslint, config in eslint.config.mjs
+
+---
+
+## 2026-01-27 - US-026
+- What was implemented: Created TopicEditor component for editing topic titles and boundaries
+- Files changed:
+  - components/TopicEditor.tsx (new)
+  - eslint.config.mjs (new - ESLint 9 flat config)
+  - package.json (added eslint, eslint-config-next, typescript-eslint, @eslint/js, @eslint/eslintrc)
+- **Learnings for future iterations:**
+  - TopicEditor displays topics with editable titles (double-click to edit)
+  - Drag handles on timeline allow adjusting start/end boundaries
+  - Contiguous constraint: when moving a boundary, adjacent topics snap to match
+  - MIN_TOPIC_DURATION (1000ms) prevents topics from being too short
+  - Uses same color palette as Timeline for visual consistency
+  - hasChanges memoized comparison enables/disables Save/Revert buttons
+  - originalTopics stored in useRef to track initial state for revert
+  - Mouse event listeners attached to document for smooth drag experience
+  - ESLint 9 requires flat config format (eslint.config.mjs) with typescript-eslint
+---
+
+## 2026-01-27 - US-025
+- What was implemented: Created ChapterLinks component for clickable chapter links
+- Files changed:
+  - components/ChapterLinks.tsx (new)
+- **Learnings for future iterations:**
+  - ChapterLinks displays sorted topics as clickable links with timestamps
+  - YouTube timestamp links use `&t=${seconds}s` format (same as Timeline)
+  - formatTime() helper reused from Timeline pattern (handles hours for long videos)
+  - Links open in new tab with `target="_blank"` and `rel="noopener noreferrer"`
+  - Uses lucide-react ExternalLink icon that appears on hover
+  - Hover state uses `group` class with `group-hover:` utilities for interaction
+---
+
+## 2026-01-27 - US-024
+- What was implemented: Created Timeline component for visual topic display
+- Files changed:
+  - components/Timeline.tsx (new)
+- **Learnings for future iterations:**
+  - Timeline uses flexbox with percentage widths based on topic duration / total duration
+  - Topic interface: id, title, startMs, endMs, order (from Prisma schema)
+  - formatTime() helper converts ms to readable time (handles hours for long videos)
+  - Tooltip positioned with fixed positioning and transform for centering
+  - Color palette cycles through 10 distinct colors using index % length
+  - Click handler opens YouTube with `&t=${seconds}s` timestamp parameter
+  - aria-label provides accessibility for screen readers
+---
+
+## 2026-01-27 - US-023
+- What was implemented: Created auth context provider for React state management
+- Files changed:
+  - contexts/AuthContext.tsx (new)
+  - components/providers.tsx (new)
+  - app/layout.tsx (updated to wrap with Providers)
+- **Learnings for future iterations:**
+  - Use separate providers.tsx client component to wrap server layout
+  - AuthContext provides: user, isAuthenticated, isLoading, login, logout
+  - Load from localStorage on mount with useEffect (client-side only)
+  - `useAuth()` hook throws if used outside AuthProvider
+  - Use `useCallback` for login/logout to prevent unnecessary re-renders
+  - isLoading state helps prevent flash of wrong auth state on mount
+---
+
+## 2026-01-27 - US-022
+- What was implemented: Created registration page UI with email/password/confirmation form
+- Files changed:
+  - app/register/page.tsx (new)
+- **Learnings for future iterations:**
+  - Registration page follows same Card/Input/Button patterns as login page
+  - Added password confirmation field with client-side validation
+  - Error display: "Passwords do not match" and "Password must be at least 8 characters"
+  - `isFormValid` computed from email, password, confirmPassword, and password match check
+  - Password hint shows minimum 8 character requirement
+  - Link uses Next.js Link component with href="/login"
+---
+
+## 2026-01-27 - US-020
+- What was implemented: Created auth API endpoints for user registration and login
+- Files changed:
+  - app/api/auth/register/route.ts (new)
+  - app/api/auth/login/route.ts (new)
+- **Learnings for future iterations:**
+  - Registration validates: email format, password min 8 chars, unique email
+  - Registration uses 409 Conflict for existing email
+  - Login uses 401 Unauthorized for invalid credentials (generic message for security)
+  - Both endpoints return JWT token and user object on success
+  - Email stored lowercase for case-insensitive login
+---
+
+## 2026-01-27 - US-019
+- What was implemented: Created auth utility functions for password hashing and JWT token management
+- Files changed:
+  - lib/auth.ts (new)
+- **Learnings for future iterations:**
+  - `hashPassword(password)` uses bcrypt with 12 salt rounds
+  - `verifyPassword(password, hash)` returns boolean using bcrypt.compare
+  - `generateToken(userId)` creates JWT with 7-day expiration using APP_SECRET
+  - `verifyToken(token)` returns `{ userId }` or null if invalid/expired
+  - JWT payload only contains userId - keep it minimal
+  - Error handling in verifyToken catches all exceptions and returns null
+---
+
+## 2026-01-27 - US-018
+- What was implemented: Installed authentication dependencies (bcrypt, jsonwebtoken) with TypeScript type definitions
+- Files changed:
+  - package.json (added bcrypt, jsonwebtoken, @types/bcrypt, @types/jsonwebtoken)
+  - package-lock.json (updated with new dependencies)
+- **Learnings for future iterations:**
+  - bcrypt@6.0.0 requires Node.js native bindings (C++ compilation)
+  - jsonwebtoken@9.0.3 is the standard JWT library for Node.js
+  - Type definitions: @types/bcrypt@6.0.0 and @types/jsonwebtoken@9.0.10
+---
+
+## 2026-01-27 - US-017
+- What was implemented: Rewrote the summarize API endpoint for V2 architecture
+- Files changed:
+  - app/api/summarize/route.ts (complete rewrite)
+- **Learnings for future iterations:**
+  - V2 summarize endpoint uses Supadata for transcripts via `fetchTranscript(url)`
+  - Smart chunking via `chunkTranscript(content, hasTimestamps)` before LLM processing
+  - LLM fallback chain via `callWithFallback(prompt, options)` for resilient summary generation
+  - Topic extraction only runs when `hasTimestamps && videoDurationMs > 0`
+  - Video duration calculated from last segment: `offset + duration`
+  - Detail levels 1-5 map to descriptions: brief, concise, balanced, detailed, comprehensive
+  - Multi-chunk summaries: each chunk summarized first, then combined for final summary
+  - Progress events streamed via TransformStream with `text/event-stream` content type
+  - Cached results return immediately with `source: "cache"`, new results have `source: "generated"`
+  - API usage logged for supadata (transcript), model used (summary), and topic extraction
+  - Title extraction from summary looks for `**Title**:`, `# Title`, or `Title:` patterns
+---
+
+## 2026-01-27 - US-016
+- What was implemented: Created topic extraction utility using LLM to identify video topics with timestamps
+- Files changed:
+  - lib/topicExtraction.ts (new)
+- **Learnings for future iterations:**
+  - `extractTopics(transcript, summary, videoDurationMs)` returns topics with title, startMs, endMs, order
+  - Lower temperature (0.3) for JSON output improves consistency
+  - Prompt must specify JSON-only output, no markdown code blocks
+  - `parseTopicsFromResponse()` handles markdown code blocks cleanup
+  - `validateAndAdjustTopics()` ensures contiguity: first starts at 0, last ends at video duration
+  - `enforceContiguity()` provides final pass to guarantee no gaps/overlaps
+  - Topics are sorted by startMs before adjustment
+  - Minimum topic duration enforced at 1000ms
+  - Returns `TopicExtractionResult` with topics array, modelUsed, and tokensUsed
+---
+
+## 2026-01-27 - US-015
+- What was implemented: Created smart chunking utility with topic boundary detection
+- Files changed:
+  - lib/chunking.ts (new)
+- **Learnings for future iterations:**
+  - `detectTopicBoundaries()` detects boundaries via time gaps (>3s) and transition keywords
+  - Keywords include: 'next topic', 'moving on', 'let's talk about', 'another thing', etc.
+  - `chunkTranscript()` returns chunks with startMs/endMs when timestamps available
+  - Fallback chunking: 7000 chars per chunk, 1000 char overlap, sentence boundary-aware
+  - TopicBoundary type includes segmentIndex, offsetMs, and reason ('time_gap' | 'keyword')
+  - TranscriptChunk type includes text, optional startMs/endMs, optional segmentIndices
+---
+
+## 2026-01-27 - US-014
+- What was implemented: Created LLM fallback chain for resilient model calling
+- Files changed:
+  - lib/llmChain.ts (new)
+- **Learnings for future iterations:**
+  - Fallback order: GLM-4.7 → Gemini → Groq → OpenAI
+  - `getAvailableModels()` returns availability status for all models
+  - `callWithFallback()` supports preferredModel option to change fallback order
+  - Each model call returns `{ response, modelUsed, tokensUsed }`
+  - Google Generative AI SDK has type definition issues - use `as any` for generationConfig
+  - Models: glm-4.7 (Z.AI), gemini-1.5-flash (Google), llama-3.1-8b-instant (Groq), gpt-4o-mini (OpenAI)
+  - API keys stored as: ZAI_API_KEY, GEMINI_API_KEY, GROQ_API_KEY, OPENAI_API_KEY
+---
+
+## 2026-01-27 - US-013
+- What was implemented: Created GLM-4.7 client service using OpenAI SDK
+- Files changed:
+  - lib/glm.ts (new)
+- **Learnings for future iterations:**
+  - GLM-4.7 uses OpenAI SDK with baseURL: https://api.z.ai/api/paas/v4/
+  - API key stored in AppConfig under "ZAI_API_KEY"
+  - Singleton pattern with caching for client instance (same as Supadata client)
+  - `getGlmClient()` returns null if API key not configured
+  - `clearGlmClient()` available to reset when key changes
+  - `getGlmModelName()` returns "glm-4.7" for API calls
+---
+
+## 2026-01-27 - US-012
+- What was implemented: Created API usage logging utility for tracking service usage
+- Files changed:
+  - lib/usageLogger.ts (new)
+- **Learnings for future iterations:**
+  - `logApiUsage()` accepts null userId for unauthenticated requests
+  - Function catches errors silently to avoid breaking main flow
+  - Added `getUserUsageStats()` helper for future usage display features
+  - Usage aggregation by service for dashboard statistics
+---
+
+## 2026-01-27 - US-011
+- What was implemented: Created transcript fetching service with cost-efficient native-first strategy
+- Files changed:
+  - lib/transcript.ts (new)
+- **Learnings for future iterations:**
+  - Use `supadata.transcript({ url, mode, text })` for general transcript with mode support
+  - `mode='native'` costs 1 credit, `mode='auto'` tries native then generates with AI
+  - `text=false` returns timestamped segments with offset/duration in milliseconds
+  - SDK returns `TranscriptOrJobId` - check for `'jobId' in result` for async processing
+  - `JobResult<Transcript>` has transcript in `.result` property, not direct fields
+  - Poll `transcript.getJobStatus(jobId)` for async jobs (max 60 seconds timeout)
+  - Export `TranscriptSegment`, `TranscriptResult`, `TranscriptError` types for consumers
+---
+
+## 2026-01-27 - US-010
+- What was implemented: Created Supadata client service for transcript fetching
+- Files changed:
+  - lib/supadata.ts (new)
+- **Learnings for future iterations:**
+  - Supadata SDK: `new Supadata({ apiKey })` to initialize
+  - API key stored in AppConfig under "SUPADATA_API_KEY"
+  - Use singleton pattern with caching for client instance
+  - Provide `clearSupadataClient()` for when API key changes
+  - `getSupadataClient()` returns null gracefully if key not configured
+---
+
+## 2026-01-27 - US-009
+- What was implemented: Created Step 4 of setup wizard for fallback model API keys (Gemini, Groq, OpenAI)
+- Files changed:
+  - app/setup/page.tsx (added Step 4 UI - state, handlers, form for 3 API keys)
+  - app/api/setup/test-key/route.ts (added validation for Gemini, Groq, OpenAI)
+- **Learnings for future iterations:**
+  - Gemini uses @google/generative-ai SDK with model "gemini-1.5-flash"
+  - Groq uses groq-sdk with model "llama-3.1-8b-instant"
+  - OpenAI uses openai SDK with model "gpt-4o-mini"
+  - Step 4 uses handleFinish() which saves all keys before redirecting
+  - Skip button on Step 4 just redirects to home without saving (no API call needed)
+  - All three SDKs were already installed in package.json from earlier
+---
+
+## 2026-01-27 - US-008
+- What was implemented: Created Step 3 of setup wizard for Z.AI API key configuration
+- Files changed:
+  - app/setup/page.tsx (updated with Step 3 UI - state, handlers, form)
+  - app/api/setup/test-key/route.ts (added Z.AI validation using OpenAI SDK)
+- **Learnings for future iterations:**
+  - Z.AI uses OpenAI SDK with custom baseURL (https://api.z.ai/api/paas/v4/)
+  - Model name is "glm-4.7" for Z.AI completions
+  - Test validation uses minimal request: max_tokens: 5, simple message
+  - UI pattern follows Step 2 exactly: state vars, test handler, save handler, skip handler
+  - CONFIG_KEYS in save-key endpoint already maps "zai" to "ZAI_API_KEY"
+---
+
+## 2026-01-27 - US-007
+- What was implemented: Created Step 2 of setup wizard for Supadata API key configuration
+- Files changed:
+  - app/setup/page.tsx (updated with Step 2 UI)
+  - app/api/setup/test-key/route.ts (new - validates API keys)
+  - app/api/setup/save-key/route.ts (new - saves encrypted keys to AppConfig)
+  - package.json (added @supadata/js dependency)
+- **Learnings for future iterations:**
+  - API key testing: Use Supadata SDK to make a test call (youtube.transcript with short video)
+  - Save-key endpoint uses CONFIG_KEYS mapping for service to config key names
+  - Steps 2-4 share similar patterns: input field, test button, skip button, save on next
+  - Skip functionality just calls save-key with empty apiKey to signal skip
+  - Status states: "idle" | "testing" | "success" | "error" for UI feedback
+  - Use password type for API key inputs for security
+  - handleBack and handleNext use prev => prev +/- 1 pattern for step navigation
+---
+
+## 2026-01-27 - US-006
+- What was implemented: Created setup wizard page with Step 1 for App Secret configuration
+- Files changed:
+  - app/setup/page.tsx (new)
+- **Learnings for future iterations:**
+  - Multi-step wizard can use useState for currentStep and conditionally render content
+  - Use Web Crypto API for generating cryptographically secure secrets in browser
+  - Step indicators built with flexbox and conditional Tailwind classes
+  - Copy to clipboard via `navigator.clipboard.writeText()` with success feedback
+  - Custom secret option requires minimum 16 characters validation
+  - Instructions section uses muted background with numbered list for clarity
+---
+
+## 2026-01-27 - US-005
+- What was implemented: Created first-run detection middleware that redirects to /setup if APP_SECRET is not configured
+- Files changed:
+  - middleware.ts (new)
+- **Learnings for future iterations:**
+  - Next.js middleware.ts must be placed at project root (next to package.json), not in app folder
+  - Use `export const config = { matcher: [...] }` to configure which paths middleware runs on
+  - Bypass paths should include /setup, /_next, /api, and static files with extensions
+  - Check env vars synchronously in middleware: `!!process.env.APP_SECRET && process.env.APP_SECRET.length > 0`
+---
+
+## 2026-01-27 - US-004
+- What was implemented: Created AppConfig service for encrypted config storage
+- Files changed:
+  - lib/appConfig.ts (new)
+- **Learnings for future iterations:**
+  - Use `prisma.appConfig.upsert()` for idempotent set operations (create or update)
+  - `hasAppSecret()` is synchronous (just checks env var), not async
+  - `getConfig()` returns null if key not found or decryption fails (graceful error handling)
+  - APP_SECRET env var must be set for any config operations to work
+---
+
+## 2026-01-27 - US-003
+- What was implemented: Created encryption utility for API keys using AES-256-GCM
+- Files changed:
+  - lib/encryption.ts (new)
+- **Learnings for future iterations:**
+  - Use PBKDF2 for key derivation from user-provided secret (100k iterations, SHA-256)
+  - AES-256-GCM requires: 12-byte IV, 16-byte auth tag, 32-byte key
+  - Store salt + IV + authTag + encrypted data together in base64 format
+  - Node.js crypto module is built-in, no external dependencies needed
+---
+
+## 2026-01-27 - US-002
+- What was implemented: Ran v2-schema database migration and fixed type errors in summarize route
+- Files changed:
+  - prisma/migrations/20260127151656_v2_schema/migration.sql (new)
+  - app/api/summarize/route.ts (fixed type errors)
+- **Learnings for future iterations:**
+  - Old code used `language`, `mode`, `source` fields that no longer exist in V2 schema
+  - Need to update existing code that references old schema fields when migrating
+  - Use `videoId` as unique identifier for summaries (not `findFirst` with multiple fields)
+  - Run `npx prisma migrate dev --name <name>` for migrations, auto-generates client
+---
+
+## 2026-01-27 - US-001
+- What was implemented: Updated Prisma schema with complete V2 database models
+- Files changed: prisma/schema.prisma
+- **Learnings for future iterations:**
+  - Project uses SQLite with Prisma ORM
+  - Prisma schema validated with `npx prisma validate`
+  - No `typecheck` script in package.json, use `npx tsc --noEmit` directly
+  - Branch naming convention: ralph/{feature-name}
+---
+
+## 2026-01-27 - US-021
+- What was implemented: Created login page UI with email/password form
+- Files changed:
+  - app/login/page.tsx (new)
+- **Learnings for future iterations:**
+  - Login page uses same Card/Input/Button patterns as setup wizard
+  - Store both `token` and `user` in localStorage on successful login
+  - Use AlertCircle icon with destructive colors for error display
+  - Form uses controlled inputs with disabled state during submission
+  - Button disabled when email/password empty or during loading
+  - Use Mail/Lock icons inside inputs with pl-10 padding
+  - Link uses Next.js Link component with href="/register"
+---
