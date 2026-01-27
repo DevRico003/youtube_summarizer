@@ -2,7 +2,7 @@
 
 import { useEffect, useState, useCallback } from "react"
 import { useRouter } from "next/navigation"
-import { Settings, Key, Sliders, FileText, BarChart3, ArrowLeft, Loader2, Check, AlertCircle, Trash2, Eye, EyeOff, Brain, Globe } from "lucide-react"
+import { Settings, Key, Sliders, FileText, BarChart3, ArrowLeft, Loader2, Check, AlertCircle, Trash2, Eye, EyeOff, Brain, Globe, Plus, Pencil, X, Info } from "lucide-react"
 import { useAuth } from "@/contexts/AuthContext"
 import { Button } from "@/components/ui/button"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
@@ -64,6 +64,15 @@ interface UserPreferences {
   customPrompt: string | null
 }
 
+interface PromptTemplate {
+  id: string
+  name: string
+  content: string
+  isDefault: boolean
+  createdAt: string
+  updatedAt: string
+}
+
 const tabs: { id: Tab; label: string; icon: React.ReactNode; description: string }[] = [
   { id: "api-keys", label: "API Keys", icon: <Key className="h-4 w-4" />, description: "Manage your API keys" },
   { id: "preferences", label: "Preferences", icon: <Sliders className="h-4 w-4" />, description: "Customize your settings" },
@@ -95,6 +104,19 @@ export default function SettingsPage() {
   const [originalPreferences, setOriginalPreferences] = useState<UserPreferences | null>(null)
   const [preferencesSaving, setPreferencesSaving] = useState(false)
   const [preferencesSaveStatus, setPreferencesSaveStatus] = useState<"idle" | "success" | "error">("idle")
+
+  // Prompt Templates tab state
+  const [templatesLoading, setTemplatesLoading] = useState(true)
+  const [templatesError, setTemplatesError] = useState<string | null>(null)
+  const [templates, setTemplates] = useState<PromptTemplate[]>([])
+  const [editingTemplate, setEditingTemplate] = useState<PromptTemplate | null>(null)
+  const [isCreatingTemplate, setIsCreatingTemplate] = useState(false)
+  const [templateFormName, setTemplateFormName] = useState("")
+  const [templateFormContent, setTemplateFormContent] = useState("")
+  const [templateSaving, setTemplateSaving] = useState(false)
+  const [templateDeleting, setTemplateDeleting] = useState<string | null>(null)
+  const [templateSaveStatus, setTemplateSaveStatus] = useState<"idle" | "success" | "error">("idle")
+  const [templateSaveMessage, setTemplateSaveMessage] = useState("")
 
   // Get token from localStorage
   const getToken = useCallback(() => {
@@ -318,6 +340,35 @@ export default function SettingsPage() {
     }
   }, [getToken])
 
+  // Fetch prompt templates
+  const fetchTemplates = useCallback(async () => {
+    const token = getToken()
+    if (!token) return
+
+    setTemplatesLoading(true)
+    setTemplatesError(null)
+
+    try {
+      const response = await fetch("/api/templates", {
+        headers: {
+          Authorization: `Bearer ${token}`,
+        },
+      })
+
+      if (!response.ok) {
+        throw new Error("Failed to fetch templates")
+      }
+
+      const data = await response.json()
+      setTemplates(data.templates)
+    } catch (error) {
+      console.error("Error fetching templates:", error)
+      setTemplatesError("Failed to load templates")
+    } finally {
+      setTemplatesLoading(false)
+    }
+  }, [getToken])
+
   // Save user preferences
   const savePreferences = async () => {
     const token = getToken()
@@ -363,6 +414,141 @@ export default function SettingsPage() {
     preferences.thinkingMode !== originalPreferences.thinkingMode
   )
 
+  // Start creating a new template
+  const startCreateTemplate = () => {
+    setIsCreatingTemplate(true)
+    setEditingTemplate(null)
+    setTemplateFormName("")
+    setTemplateFormContent("")
+    setTemplateSaveStatus("idle")
+    setTemplateSaveMessage("")
+  }
+
+  // Start editing an existing template
+  const startEditTemplate = (template: PromptTemplate) => {
+    setEditingTemplate(template)
+    setIsCreatingTemplate(false)
+    setTemplateFormName(template.name)
+    setTemplateFormContent(template.content)
+    setTemplateSaveStatus("idle")
+    setTemplateSaveMessage("")
+  }
+
+  // Cancel template editing
+  const cancelTemplateEdit = () => {
+    setEditingTemplate(null)
+    setIsCreatingTemplate(false)
+    setTemplateFormName("")
+    setTemplateFormContent("")
+    setTemplateSaveStatus("idle")
+    setTemplateSaveMessage("")
+  }
+
+  // Save template (create or update)
+  const saveTemplate = async () => {
+    const token = getToken()
+    if (!token) return
+
+    if (!templateFormName.trim() || !templateFormContent.trim()) {
+      setTemplateSaveStatus("error")
+      setTemplateSaveMessage("Name and content are required")
+      return
+    }
+
+    setTemplateSaving(true)
+    setTemplateSaveStatus("idle")
+    setTemplateSaveMessage("")
+
+    try {
+      let response: Response
+
+      if (isCreatingTemplate) {
+        // Create new template
+        response = await fetch("/api/templates", {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+            Authorization: `Bearer ${token}`,
+          },
+          body: JSON.stringify({
+            name: templateFormName.trim(),
+            content: templateFormContent.trim(),
+          }),
+        })
+      } else if (editingTemplate) {
+        // Update existing template
+        response = await fetch("/api/templates", {
+          method: "PUT",
+          headers: {
+            "Content-Type": "application/json",
+            Authorization: `Bearer ${token}`,
+          },
+          body: JSON.stringify({
+            id: editingTemplate.id,
+            name: templateFormName.trim(),
+            content: templateFormContent.trim(),
+          }),
+        })
+      } else {
+        return
+      }
+
+      const data = await response.json()
+
+      if (!response.ok) {
+        throw new Error(data.error || "Failed to save template")
+      }
+
+      setTemplateSaveStatus("success")
+      setTemplateSaveMessage(isCreatingTemplate ? "Template created" : "Template updated")
+
+      // Refresh templates list
+      await fetchTemplates()
+
+      // Clear form after a delay
+      setTimeout(() => {
+        cancelTemplateEdit()
+      }, 1500)
+    } catch (error) {
+      console.error("Error saving template:", error)
+      setTemplateSaveStatus("error")
+      setTemplateSaveMessage(error instanceof Error ? error.message : "Failed to save template")
+    } finally {
+      setTemplateSaving(false)
+    }
+  }
+
+  // Delete template
+  const deleteTemplate = async (templateId: string) => {
+    const token = getToken()
+    if (!token) return
+
+    setTemplateDeleting(templateId)
+
+    try {
+      const response = await fetch(`/api/templates?id=${templateId}`, {
+        method: "DELETE",
+        headers: {
+          Authorization: `Bearer ${token}`,
+        },
+      })
+
+      const data = await response.json()
+
+      if (!response.ok) {
+        throw new Error(data.error || "Failed to delete template")
+      }
+
+      // Refresh templates list
+      await fetchTemplates()
+    } catch (error) {
+      console.error("Error deleting template:", error)
+      setTemplatesError(error instanceof Error ? error.message : "Failed to delete template")
+    } finally {
+      setTemplateDeleting(null)
+    }
+  }
+
   // Fetch API keys when tab becomes active
   useEffect(() => {
     if (isAuthenticated && activeTab === "api-keys") {
@@ -376,6 +562,13 @@ export default function SettingsPage() {
       fetchPreferences()
     }
   }, [isAuthenticated, activeTab, fetchPreferences])
+
+  // Fetch templates when tab becomes active
+  useEffect(() => {
+    if (isAuthenticated && activeTab === "prompt-templates") {
+      fetchTemplates()
+    }
+  }, [isAuthenticated, activeTab, fetchTemplates])
 
   // Redirect to login if not authenticated
   useEffect(() => {
@@ -763,22 +956,241 @@ export default function SettingsPage() {
           </div>
         )
       }
-      case "prompt-templates":
+      case "prompt-templates": {
+        if (templatesLoading) {
+          return (
+            <Card>
+              <CardContent className="py-8">
+                <div className="flex flex-col items-center gap-4">
+                  <Loader2 className="h-8 w-8 animate-spin text-primary" />
+                  <p className="text-muted-foreground">Loading templates...</p>
+                </div>
+              </CardContent>
+            </Card>
+          )
+        }
+
+        if (templatesError) {
+          return (
+            <Card>
+              <CardContent className="py-8">
+                <div className="flex flex-col items-center gap-4">
+                  <AlertCircle className="h-8 w-8 text-destructive" />
+                  <p className="text-destructive">{templatesError}</p>
+                  <Button onClick={fetchTemplates} variant="outline">
+                    Try Again
+                  </Button>
+                </div>
+              </CardContent>
+            </Card>
+          )
+        }
+
+        // Template editor view
+        if (isCreatingTemplate || editingTemplate) {
+          return (
+            <div className="space-y-4">
+              <Card>
+                <CardHeader>
+                  <div className="flex items-center justify-between">
+                    <div>
+                      <CardTitle>{isCreatingTemplate ? "Create Template" : "Edit Template"}</CardTitle>
+                      <CardDescription>
+                        {isCreatingTemplate
+                          ? "Create a new prompt template for summary generation."
+                          : `Editing: ${editingTemplate?.name}`}
+                      </CardDescription>
+                    </div>
+                    <Button variant="ghost" size="icon" onClick={cancelTemplateEdit}>
+                      <X className="h-4 w-4" />
+                    </Button>
+                  </div>
+                </CardHeader>
+                <CardContent className="space-y-4">
+                  {/* Template Name */}
+                  <div className="space-y-2">
+                    <Label htmlFor="template-name">Template Name</Label>
+                    <Input
+                      id="template-name"
+                      value={templateFormName}
+                      onChange={(e) => setTemplateFormName(e.target.value)}
+                      placeholder="Enter template name"
+                      disabled={editingTemplate?.isDefault}
+                    />
+                    {editingTemplate?.isDefault && (
+                      <p className="text-xs text-muted-foreground">
+                        The default template name cannot be changed.
+                      </p>
+                    )}
+                  </div>
+
+                  {/* Template Content */}
+                  <div className="space-y-2">
+                    <Label htmlFor="template-content">Template Content</Label>
+                    <textarea
+                      id="template-content"
+                      value={templateFormContent}
+                      onChange={(e) => setTemplateFormContent(e.target.value)}
+                      placeholder="Enter your prompt template..."
+                      className="w-full min-h-[200px] px-3 py-2 rounded-md border border-input bg-background text-sm ring-offset-background placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 disabled:cursor-not-allowed disabled:opacity-50 resize-y"
+                    />
+                  </div>
+
+                  {/* Available Variables Info */}
+                  <div className="rounded-lg bg-muted/50 border border-muted p-4">
+                    <div className="flex items-start gap-2">
+                      <Info className="h-4 w-4 text-muted-foreground mt-0.5 shrink-0" />
+                      <div>
+                        <p className="text-sm font-medium">Available Variables</p>
+                        <p className="text-xs text-muted-foreground mt-1">
+                          Use these placeholders in your template. They will be replaced with actual values during summary generation.
+                        </p>
+                        <div className="flex flex-wrap gap-2 mt-2">
+                          <code className="text-xs bg-background px-2 py-1 rounded border">{"{{transcript}}"}</code>
+                          <code className="text-xs bg-background px-2 py-1 rounded border">{"{{language}}"}</code>
+                          <code className="text-xs bg-background px-2 py-1 rounded border">{"{{detailLevel}}"}</code>
+                        </div>
+                      </div>
+                    </div>
+                  </div>
+
+                  {/* Status message */}
+                  {templateSaveStatus !== "idle" && (
+                    <div className={`flex items-center gap-2 text-sm ${
+                      templateSaveStatus === "success"
+                        ? "text-green-600 dark:text-green-400"
+                        : "text-destructive"
+                    }`}>
+                      {templateSaveStatus === "success" ? (
+                        <Check className="h-4 w-4" />
+                      ) : (
+                        <AlertCircle className="h-4 w-4" />
+                      )}
+                      {templateSaveMessage}
+                    </div>
+                  )}
+
+                  {/* Action buttons */}
+                  <div className="flex gap-2 justify-end">
+                    <Button variant="outline" onClick={cancelTemplateEdit} disabled={templateSaving}>
+                      Cancel
+                    </Button>
+                    <Button
+                      onClick={saveTemplate}
+                      disabled={templateSaving || !templateFormName.trim() || !templateFormContent.trim()}
+                    >
+                      {templateSaving ? (
+                        <>
+                          <Loader2 className="h-4 w-4 mr-2 animate-spin" />
+                          Saving...
+                        </>
+                      ) : (
+                        isCreatingTemplate ? "Create Template" : "Save Changes"
+                      )}
+                    </Button>
+                  </div>
+                </CardContent>
+              </Card>
+            </div>
+          )
+        }
+
+        // Template list view
         return (
-          <Card>
-            <CardHeader>
-              <CardTitle>Prompt Templates</CardTitle>
-              <CardDescription>
-                Create and manage custom prompt templates for summary generation.
-              </CardDescription>
-            </CardHeader>
-            <CardContent>
-              <p className="text-muted-foreground text-sm">
-                Prompt template management will be implemented in the next update.
-              </p>
-            </CardContent>
-          </Card>
+          <div className="space-y-4">
+            <Card>
+              <CardHeader>
+                <div className="flex items-center justify-between">
+                  <div>
+                    <CardTitle>Prompt Templates</CardTitle>
+                    <CardDescription>
+                      Create and manage custom prompt templates for summary generation.
+                    </CardDescription>
+                  </div>
+                  <Button onClick={startCreateTemplate} size="sm">
+                    <Plus className="h-4 w-4 mr-2" />
+                    New Template
+                  </Button>
+                </div>
+              </CardHeader>
+            </Card>
+
+            {templates.length === 0 ? (
+              <Card>
+                <CardContent className="py-8">
+                  <div className="flex flex-col items-center gap-4 text-center">
+                    <FileText className="h-12 w-12 text-muted-foreground/50" />
+                    <div>
+                      <p className="text-muted-foreground">No templates yet</p>
+                      <p className="text-sm text-muted-foreground mt-1">
+                        Create your first template to customize how summaries are generated.
+                      </p>
+                    </div>
+                    <Button onClick={startCreateTemplate}>
+                      <Plus className="h-4 w-4 mr-2" />
+                      Create Template
+                    </Button>
+                  </div>
+                </CardContent>
+              </Card>
+            ) : (
+              <div className="space-y-3">
+                {templates.map((template) => (
+                  <Card key={template.id}>
+                    <CardContent className="py-4">
+                      <div className="flex items-start justify-between gap-4">
+                        <div className="flex-1 min-w-0">
+                          <div className="flex items-center gap-2">
+                            <h3 className="font-medium truncate">{template.name}</h3>
+                            {template.isDefault && (
+                              <span className="text-xs bg-primary/10 text-primary px-2 py-0.5 rounded-full shrink-0">
+                                Default
+                              </span>
+                            )}
+                          </div>
+                          <p className="text-sm text-muted-foreground line-clamp-2 mt-1">
+                            {template.content.substring(0, 150)}
+                            {template.content.length > 150 && "..."}
+                          </p>
+                          <p className="text-xs text-muted-foreground mt-2">
+                            Last updated: {new Date(template.updatedAt).toLocaleDateString()}
+                          </p>
+                        </div>
+                        <div className="flex gap-2 shrink-0">
+                          <Button
+                            variant="outline"
+                            size="icon"
+                            onClick={() => startEditTemplate(template)}
+                          >
+                            <Pencil className="h-4 w-4" />
+                            <span className="sr-only">Edit</span>
+                          </Button>
+                          {!template.isDefault && (
+                            <Button
+                              variant="outline"
+                              size="icon"
+                              onClick={() => deleteTemplate(template.id)}
+                              disabled={templateDeleting === template.id}
+                              className="text-destructive hover:text-destructive"
+                            >
+                              {templateDeleting === template.id ? (
+                                <Loader2 className="h-4 w-4 animate-spin" />
+                              ) : (
+                                <Trash2 className="h-4 w-4" />
+                              )}
+                              <span className="sr-only">Delete</span>
+                            </Button>
+                          )}
+                        </div>
+                      </div>
+                    </CardContent>
+                  </Card>
+                ))}
+              </div>
+            )}
+          </div>
         )
+      }
       case "usage":
         return (
           <Card>
