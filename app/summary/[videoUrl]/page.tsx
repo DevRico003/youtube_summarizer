@@ -4,7 +4,7 @@ import { useEffect, useState } from "react";
 import { useSearchParams } from "next/navigation";
 import { use } from "react";
 import ReactMarkdown from "react-markdown";
-import { Play, AlertCircle, X, Edit3, Check, Loader2 } from "lucide-react";
+import { Play, AlertCircle, X, Edit3, Check, Loader2, Download } from "lucide-react";
 import { Card, CardContent } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { ProgressStages, type Stage } from "@/components/ProgressStages";
@@ -13,6 +13,7 @@ import { ChapterLinks } from "@/components/ChapterLinks";
 import { TopicEditor } from "@/components/TopicEditor";
 import { extractVideoId } from "@/lib/youtube";
 import { useAuth } from "@/contexts/AuthContext";
+import { generateMarkdown } from "@/lib/exportMarkdown";
 
 interface Topic {
   id: string;
@@ -236,6 +237,28 @@ export default function SummaryPage({ params }: PageProps) {
   // Get the topics to display (edited or original)
   const displayTopics = editedTopics || summary?.topics || [];
 
+  // Handle export to markdown
+  const handleExport = () => {
+    if (!summary || !videoId) return;
+
+    const markdown = generateMarkdown(
+      { title: summary.title, content: summary.content },
+      displayTopics,
+      videoId
+    );
+
+    // Create a blob and trigger download
+    const blob = new Blob([markdown], { type: "text/markdown;charset=utf-8" });
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement("a");
+    link.href = url;
+    link.download = `${videoId}-summary.md`;
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
+    URL.revokeObjectURL(url);
+  };
+
   return (
     <div className="min-h-screen bg-background p-4 transition-all duration-300">
       <div className="max-w-5xl mx-auto">
@@ -395,9 +418,20 @@ export default function SummaryPage({ params }: PageProps) {
             {summary?.content && (
               <Card className="transition-all duration-300">
                 <CardContent className="pt-6">
-                  <h2 className="text-sm font-semibold text-muted-foreground uppercase tracking-wide mb-4">
-                    Summary
-                  </h2>
+                  <div className="flex items-center justify-between mb-4">
+                    <h2 className="text-sm font-semibold text-muted-foreground uppercase tracking-wide">
+                      Summary
+                    </h2>
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      onClick={handleExport}
+                      className="flex items-center gap-2"
+                    >
+                      <Download className="w-4 h-4" />
+                      Export
+                    </Button>
+                  </div>
                   <div className="prose prose-sm max-w-none dark:prose-invert">
                     <ReactMarkdown>{summary.content}</ReactMarkdown>
                   </div>
