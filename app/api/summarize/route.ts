@@ -530,11 +530,10 @@ export async function POST(req: Request) {
       const selectedModel = AI_MODELS[aiModel as keyof typeof AI_MODELS];
       logger.info(`Using ${MODEL_NAMES[aiModel as keyof typeof MODEL_NAMES]} model for generation...`);
 
-      // Check cache first
-      const existingSummary = await prisma.summary.findFirst({
+      // Check cache first (using videoId as unique identifier)
+      const existingSummary = await prisma.summary.findUnique({
         where: {
-          videoId,
-          language
+          videoId
         }
       });
 
@@ -614,11 +613,10 @@ export async function POST(req: Request) {
       });
 
       try {
-        // Check if summary already exists
-        const existingSummary = await prisma.summary.findFirst({
+        // Check if summary already exists (using videoId as unique key)
+        const existingSummary = await prisma.summary.findUnique({
           where: {
-            videoId,
-            language
+            videoId
           }
         });
 
@@ -627,12 +625,11 @@ export async function POST(req: Request) {
           // Update existing summary
           savedSummary = await prisma.summary.update({
             where: {
-              id: existingSummary.id
+              videoId
             },
             data: {
               content: summary,
-              mode,
-              source,
+              transcript,
               updatedAt: new Date()
             }
           });
@@ -643,9 +640,8 @@ export async function POST(req: Request) {
               videoId,
               title,
               content: summary,
-              language,
-              mode,
-              source
+              transcript,
+              hasTimestamps: false
             }
           });
         }
@@ -653,7 +649,7 @@ export async function POST(req: Request) {
         await writeProgress({
           type: 'complete',
           summary: savedSummary.content,
-          source: savedSummary.source || 'youtube',
+          source: source || 'youtube',
           status: 'completed'
         });
       } catch (dbError: any) {
