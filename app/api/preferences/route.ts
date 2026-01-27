@@ -55,6 +55,7 @@ export async function GET(request: NextRequest) {
           language: "en",
           detailLevel: 3,
           preferredModel: "glm-4.7",
+          thinkingMode: false,
           customPrompt: null,
         },
       });
@@ -66,6 +67,7 @@ export async function GET(request: NextRequest) {
         language: preferences.language,
         detailLevel: preferences.detailLevel,
         preferredModel: preferences.preferredModel,
+        thinkingMode: preferences.thinkingMode,
         customPrompt: preferences.customPrompt,
       },
     });
@@ -106,10 +108,11 @@ export async function POST(request: NextRequest) {
     }
 
     const body = await request.json();
-    const { language, detailLevel, preferredModel, customPrompt } = body as {
+    const { language, detailLevel, preferredModel, thinkingMode, customPrompt } = body as {
       language?: string;
       detailLevel?: number;
       preferredModel?: string;
+      thinkingMode?: boolean;
       customPrompt?: string | null;
     };
 
@@ -128,12 +131,14 @@ export async function POST(request: NextRequest) {
       language?: string;
       detailLevel?: number;
       preferredModel?: string;
+      thinkingMode?: boolean;
       customPrompt?: string | null;
     } = {};
 
     if (language !== undefined) updateData.language = language;
     if (detailLevel !== undefined) updateData.detailLevel = detailLevel;
     if (preferredModel !== undefined) updateData.preferredModel = preferredModel;
+    if (thinkingMode !== undefined) updateData.thinkingMode = thinkingMode;
     if (customPrompt !== undefined) updateData.customPrompt = customPrompt;
 
     // Upsert preferences (create if not exists, update if exists)
@@ -144,6 +149,7 @@ export async function POST(request: NextRequest) {
         language: language ?? "en",
         detailLevel: detailLevel ?? 3,
         preferredModel: preferredModel ?? "glm-4.7",
+        thinkingMode: thinkingMode ?? false,
         customPrompt: customPrompt ?? null,
       },
       update: updateData,
@@ -155,6 +161,7 @@ export async function POST(request: NextRequest) {
         language: preferences.language,
         detailLevel: preferences.detailLevel,
         preferredModel: preferences.preferredModel,
+        thinkingMode: preferences.thinkingMode,
         customPrompt: preferences.customPrompt,
       },
     });

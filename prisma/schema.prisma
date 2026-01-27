@@ -69,6 +69,7 @@ model UserPreference {
   language       String  @default("en")
   detailLevel    Int     @default(3)
   preferredModel String  @default("glm-4.7")
+  thinkingMode   Boolean @default(false)
   customPrompt   String?
 
   user User @relation(fields: [userId], references: [id], onDelete: Cascade)

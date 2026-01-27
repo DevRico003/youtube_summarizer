@@ -2,12 +2,15 @@
 
 import { useEffect, useState, useCallback } from "react"
 import { useRouter } from "next/navigation"
-import { Settings, Key, Sliders, FileText, BarChart3, ArrowLeft, Loader2, Check, AlertCircle, Trash2, Eye, EyeOff } from "lucide-react"
+import { Settings, Key, Sliders, FileText, BarChart3, ArrowLeft, Loader2, Check, AlertCircle, Trash2, Eye, EyeOff, Brain, Globe } from "lucide-react"
 import { useAuth } from "@/contexts/AuthContext"
 import { Button } from "@/components/ui/button"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
+import { Switch } from "@/components/ui/switch"
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
+import { DetailSlider } from "@/components/DetailSlider"
 import Link from "next/link"
 
 type Tab = "api-keys" | "preferences" | "prompt-templates" | "usage"
@@ -31,6 +34,36 @@ interface ApiKeyState {
 const API_KEY_SERVICES = ["supadata", "zai", "gemini", "groq", "openai"] as const
 type ApiKeyService = typeof API_KEY_SERVICES[number]
 
+// Available languages for summary output
+const LANGUAGES = [
+  { value: "en", label: "English" },
+  { value: "es", label: "Spanish" },
+  { value: "fr", label: "French" },
+  { value: "de", label: "German" },
+  { value: "it", label: "Italian" },
+  { value: "pt", label: "Portuguese" },
+  { value: "zh", label: "Chinese" },
+  { value: "ja", label: "Japanese" },
+  { value: "ko", label: "Korean" },
+  { value: "ru", label: "Russian" },
+]
+
+// Available models
+const MODELS = [
+  { id: "glm-4.7", name: "GLM-4.7 (Z.AI)", supportsThinking: true },
+  { id: "gemini", name: "Gemini 1.5 Flash", supportsThinking: false },
+  { id: "groq", name: "Llama 3.1 (Groq)", supportsThinking: false },
+  { id: "openai", name: "GPT-4o Mini", supportsThinking: false },
+]
+
+interface UserPreferences {
+  language: string
+  detailLevel: number
+  preferredModel: string
+  thinkingMode: boolean
+  customPrompt: string | null
+}
+
 const tabs: { id: Tab; label: string; icon: React.ReactNode; description: string }[] = [
   { id: "api-keys", label: "API Keys", icon: <Key className="h-4 w-4" />, description: "Manage your API keys" },
   { id: "preferences", label: "Preferences", icon: <Sliders className="h-4 w-4" />, description: "Customize your settings" },
@@ -40,7 +73,7 @@ const tabs: { id: Tab; label: string; icon: React.ReactNode; description: string
 
 export default function SettingsPage() {
   const router = useRouter()
-  const { isAuthenticated, isLoading, user } = useAuth()
+  const { isAuthenticated, isLoading } = useAuth()
   const [activeTab, setActiveTab] = useState<Tab>("api-keys")
 
   // API Keys tab state
@@ -48,6 +81,20 @@ export default function SettingsPage() {
   const [apiKeysError, setApiKeysError] = useState<string | null>(null)
   const [apiKeys, setApiKeys] = useState<Record<string, ApiKeyInfo>>({})
   const [apiKeyStates, setApiKeyStates] = useState<Record<string, ApiKeyState>>({})
+
+  // Preferences tab state
+  const [preferencesLoading, setPreferencesLoading] = useState(true)
+  const [preferencesError, setPreferencesError] = useState<string | null>(null)
+  const [preferences, setPreferences] = useState<UserPreferences>({
+    language: "en",
+    detailLevel: 3,
+    preferredModel: "glm-4.7",
+    thinkingMode: false,
+    customPrompt: null,
+  })
+  const [originalPreferences, setOriginalPreferences] = useState<UserPreferences | null>(null)
+  const [preferencesSaving, setPreferencesSaving] = useState(false)
+  const [preferencesSaveStatus, setPreferencesSaveStatus] = useState<"idle" | "success" | "error">("idle")
 
   // Get token from localStorage
   const getToken = useCallback(() => {
@@ -134,7 +181,7 @@ export default function SettingsPage() {
           [service]: { ...prev[service], testing: false, testStatus: "error", testMessage: data.error || "Invalid API key" }
         }))
       }
-    } catch (error) {
+    } catch {
       setApiKeyStates(prev => ({
         ...prev,
         [service]: { ...prev[service], testing: false, testStatus: "error", testMessage: "Failed to test API key" }
@@ -179,7 +226,7 @@ export default function SettingsPage() {
           [service]: { ...prev[service], saving: false, testStatus: "error", testMessage: data.error || "Failed to save API key" }
         }))
       }
-    } catch (error) {
+    } catch {
       setApiKeyStates(prev => ({
         ...prev,
         [service]: { ...prev[service], saving: false, testStatus: "error", testMessage: "Failed to save API key" }
@@ -216,7 +263,7 @@ export default function SettingsPage() {
           [service]: { ...prev[service], deleting: false, testStatus: "error", testMessage: data.error || "Failed to delete API key" }
         }))
       }
-    } catch (error) {
+    } catch {
       setApiKeyStates(prev => ({
         ...prev,
         [service]: { ...prev[service], deleting: false, testStatus: "error", testMessage: "Failed to delete API key" }
@@ -240,12 +287,95 @@ export default function SettingsPage() {
     }))
   }
 
+  // Fetch user preferences
+  const fetchPreferences = useCallback(async () => {
+    const token = getToken()
+    if (!token) return
+
+    setPreferencesLoading(true)
+    setPreferencesError(null)
+
+    try {
+      const response = await fetch("/api/preferences", {
+        headers: {
+          Authorization: `Bearer ${token}`,
+        },
+      })
+
+      if (!response.ok) {
+        throw new Error("Failed to fetch preferences")
+      }
+
+      const data = await response.json()
+      const prefs = data.preferences
+      setPreferences(prefs)
+      setOriginalPreferences(prefs)
+    } catch (error) {
+      console.error("Error fetching preferences:", error)
+      setPreferencesError("Failed to load preferences")
+    } finally {
+      setPreferencesLoading(false)
+    }
+  }, [getToken])
+
+  // Save user preferences
+  const savePreferences = async () => {
+    const token = getToken()
+    if (!token) return
+
+    setPreferencesSaving(true)
+    setPreferencesSaveStatus("idle")
+
+    try {
+      const response = await fetch("/api/preferences", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: `Bearer ${token}`,
+        },
+        body: JSON.stringify(preferences),
+      })
+
+      if (!response.ok) {
+        throw new Error("Failed to save preferences")
+      }
+
+      const data = await response.json()
+      setPreferences(data.preferences)
+      setOriginalPreferences(data.preferences)
+      setPreferencesSaveStatus("success")
+
+      // Clear success status after 3 seconds
+      setTimeout(() => setPreferencesSaveStatus("idle"), 3000)
+    } catch (error) {
+      console.error("Error saving preferences:", error)
+      setPreferencesSaveStatus("error")
+    } finally {
+      setPreferencesSaving(false)
+    }
+  }
+
+  // Check if preferences have changed
+  const preferencesChanged = originalPreferences !== null && (
+    preferences.language !== originalPreferences.language ||
+    preferences.detailLevel !== originalPreferences.detailLevel ||
+    preferences.preferredModel !== originalPreferences.preferredModel ||
+    preferences.thinkingMode !== originalPreferences.thinkingMode
+  )
+
   // Fetch API keys when tab becomes active
   useEffect(() => {
     if (isAuthenticated && activeTab === "api-keys") {
       fetchApiKeys()
     }
   }, [isAuthenticated, activeTab, fetchApiKeys])
+
+  // Fetch preferences when tab becomes active
+  useEffect(() => {
+    if (isAuthenticated && activeTab === "preferences") {
+      fetchPreferences()
+    }
+  }, [isAuthenticated, activeTab, fetchPreferences])
 
   // Redirect to login if not authenticated
   useEffect(() => {
@@ -464,22 +594,175 @@ export default function SettingsPage() {
             {renderApiKeysTab()}
           </div>
         )
-      case "preferences":
+      case "preferences": {
+        if (preferencesLoading) {
+          return (
+            <Card>
+              <CardContent className="py-8">
+                <div className="flex flex-col items-center gap-4">
+                  <Loader2 className="h-8 w-8 animate-spin text-primary" />
+                  <p className="text-muted-foreground">Loading preferences...</p>
+                </div>
+              </CardContent>
+            </Card>
+          )
+        }
+
+        if (preferencesError) {
+          return (
+            <Card>
+              <CardContent className="py-8">
+                <div className="flex flex-col items-center gap-4">
+                  <AlertCircle className="h-8 w-8 text-destructive" />
+                  <p className="text-destructive">{preferencesError}</p>
+                  <Button onClick={fetchPreferences} variant="outline">
+                    Try Again
+                  </Button>
+                </div>
+              </CardContent>
+            </Card>
+          )
+        }
+
+        const selectedModel = MODELS.find(m => m.id === preferences.preferredModel)
+
         return (
-          <Card>
-            <CardHeader>
-              <CardTitle>Preferences</CardTitle>
-              <CardDescription>
-                Customize your default settings for summary generation.
-              </CardDescription>
-            </CardHeader>
-            <CardContent>
-              <p className="text-muted-foreground text-sm">
-                Preferences management will be implemented in the next update.
-              </p>
-            </CardContent>
-          </Card>
+          <div className="space-y-4">
+            <Card>
+              <CardHeader>
+                <CardTitle>Preferences</CardTitle>
+                <CardDescription>
+                  Customize your default settings for summary generation. These settings will be applied when you generate new summaries.
+                </CardDescription>
+              </CardHeader>
+            </Card>
+
+            {/* Language Selector */}
+            <Card>
+              <CardHeader className="pb-3">
+                <div className="flex items-center gap-2">
+                  <Globe className="h-4 w-4 text-muted-foreground" />
+                  <CardTitle className="text-base">Output Language</CardTitle>
+                </div>
+                <CardDescription>
+                  Choose the language for generated summaries
+                </CardDescription>
+              </CardHeader>
+              <CardContent>
+                <Select
+                  value={preferences.language}
+                  onValueChange={(value) => setPreferences(prev => ({ ...prev, language: value }))}
+                >
+                  <SelectTrigger className="w-full">
+                    <SelectValue placeholder="Select language" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {LANGUAGES.map((lang) => (
+                      <SelectItem key={lang.value} value={lang.value}>
+                        {lang.label}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              </CardContent>
+            </Card>
+
+            {/* Detail Level Slider */}
+            <Card>
+              <CardHeader className="pb-3">
+                <CardTitle className="text-base">Default Detail Level</CardTitle>
+                <CardDescription>
+                  Set the default level of detail for new summaries
+                </CardDescription>
+              </CardHeader>
+              <CardContent>
+                <DetailSlider
+                  value={preferences.detailLevel}
+                  onChange={(value) => setPreferences(prev => ({ ...prev, detailLevel: value }))}
+                />
+              </CardContent>
+            </Card>
+
+            {/* Model Selector */}
+            <Card>
+              <CardHeader className="pb-3">
+                <CardTitle className="text-base">Default AI Model</CardTitle>
+                <CardDescription>
+                  Choose the default model for generating summaries
+                </CardDescription>
+              </CardHeader>
+              <CardContent className="space-y-4">
+                <Select
+                  value={preferences.preferredModel}
+                  onValueChange={(value) => setPreferences(prev => ({ ...prev, preferredModel: value }))}
+                >
+                  <SelectTrigger className="w-full">
+                    <SelectValue placeholder="Select model" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {MODELS.map((model) => (
+                      <SelectItem key={model.id} value={model.id}>
+                        {model.name}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+
+                {/* Thinking Mode Toggle - only shown when GLM-4.7 is selected */}
+                {selectedModel?.supportsThinking && (
+                  <div className="flex items-center justify-between p-3 rounded-lg bg-secondary/50 border border-secondary">
+                    <div className="flex items-center gap-2">
+                      <Brain className="h-4 w-4 text-primary" />
+                      <div>
+                        <span className="text-sm font-medium">Default Thinking Mode</span>
+                        <p className="text-xs text-muted-foreground">
+                          Enable enhanced reasoning for complex content by default
+                        </p>
+                      </div>
+                    </div>
+                    <Switch
+                      checked={preferences.thinkingMode}
+                      onCheckedChange={(checked) => setPreferences(prev => ({ ...prev, thinkingMode: checked }))}
+                      aria-label="Toggle default thinking mode"
+                    />
+                  </div>
+                )}
+              </CardContent>
+            </Card>
+
+            {/* Save Button */}
+            <div className="flex items-center justify-between">
+              <div className="flex items-center gap-2">
+                {preferencesSaveStatus === "success" && (
+                  <span className="flex items-center gap-1.5 text-sm text-green-600 dark:text-green-400">
+                    <Check className="h-4 w-4" />
+                    Preferences saved
+                  </span>
+                )}
+                {preferencesSaveStatus === "error" && (
+                  <span className="flex items-center gap-1.5 text-sm text-destructive">
+                    <AlertCircle className="h-4 w-4" />
+                    Failed to save preferences
+                  </span>
+                )}
+              </div>
+              <Button
+                onClick={savePreferences}
+                disabled={!preferencesChanged || preferencesSaving}
+              >
+                {preferencesSaving ? (
+                  <>
+                    <Loader2 className="h-4 w-4 mr-2 animate-spin" />
+                    Saving...
+                  </>
+                ) : (
+                  "Save Preferences"
+                )}
+              </Button>
+            </div>
+          </div>
         )
+      }
       case "prompt-templates":
         return (
           <Card>
