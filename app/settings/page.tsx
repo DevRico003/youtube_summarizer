@@ -73,6 +73,40 @@ interface PromptTemplate {
   updatedAt: string
 }
 
+interface UsageBreakdown {
+  period: string
+  requests: number
+  credits: number
+  tokens: number
+}
+
+interface ServiceUsage {
+  service: string
+  totalRequests: number
+  totalCredits: number
+  totalTokens: number
+}
+
+interface UsageLog {
+  id: string
+  service: string
+  endpoint: string
+  creditsUsed: number
+  tokensUsed: number
+  timestamp: string
+}
+
+interface UsageData {
+  totalRequests: number
+  totalCredits: number
+  totalTokens: number
+  byService: ServiceUsage[]
+  daily: UsageBreakdown[]
+  weekly: UsageBreakdown[]
+  monthly: UsageBreakdown[]
+  logs: UsageLog[]
+}
+
 const tabs: { id: Tab; label: string; icon: React.ReactNode; description: string }[] = [
   { id: "api-keys", label: "API Keys", icon: <Key className="h-4 w-4" />, description: "Manage your API keys" },
   { id: "preferences", label: "Preferences", icon: <Sliders className="h-4 w-4" />, description: "Customize your settings" },
@@ -117,6 +151,12 @@ export default function SettingsPage() {
   const [templateDeleting, setTemplateDeleting] = useState<string | null>(null)
   const [templateSaveStatus, setTemplateSaveStatus] = useState<"idle" | "success" | "error">("idle")
   const [templateSaveMessage, setTemplateSaveMessage] = useState("")
+
+  // Usage tab state
+  const [usageLoading, setUsageLoading] = useState(true)
+  const [usageError, setUsageError] = useState<string | null>(null)
+  const [usageData, setUsageData] = useState<UsageData | null>(null)
+  const [usageChartView, setUsageChartView] = useState<"daily" | "weekly" | "monthly">("daily")
 
   // Get token from localStorage
   const getToken = useCallback(() => {
@@ -369,6 +409,35 @@ export default function SettingsPage() {
     }
   }, [getToken])
 
+  // Fetch usage data
+  const fetchUsage = useCallback(async () => {
+    const token = getToken()
+    if (!token) return
+
+    setUsageLoading(true)
+    setUsageError(null)
+
+    try {
+      const response = await fetch("/api/usage", {
+        headers: {
+          Authorization: `Bearer ${token}`,
+        },
+      })
+
+      if (!response.ok) {
+        throw new Error("Failed to fetch usage data")
+      }
+
+      const data = await response.json()
+      setUsageData(data.usage)
+    } catch (error) {
+      console.error("Error fetching usage:", error)
+      setUsageError("Failed to load usage data")
+    } finally {
+      setUsageLoading(false)
+    }
+  }, [getToken])
+
   // Save user preferences
   const savePreferences = async () => {
     const token = getToken()
@@ -569,6 +638,13 @@ export default function SettingsPage() {
       fetchTemplates()
     }
   }, [isAuthenticated, activeTab, fetchTemplates])
+
+  // Fetch usage when tab becomes active
+  useEffect(() => {
+    if (isAuthenticated && activeTab === "usage") {
+      fetchUsage()
+    }
+  }, [isAuthenticated, activeTab, fetchUsage])
 
   // Redirect to login if not authenticated
   useEffect(() => {
@@ -1191,22 +1267,307 @@ export default function SettingsPage() {
           </div>
         )
       }
-      case "usage":
+      case "usage": {
+        if (usageLoading) {
+          return (
+            <Card>
+              <CardContent className="py-8">
+                <div className="flex flex-col items-center gap-4">
+                  <Loader2 className="h-8 w-8 animate-spin text-primary" />
+                  <p className="text-muted-foreground">Loading usage data...</p>
+                </div>
+              </CardContent>
+            </Card>
+          )
+        }
+
+        if (usageError) {
+          return (
+            <Card>
+              <CardContent className="py-8">
+                <div className="flex flex-col items-center gap-4">
+                  <AlertCircle className="h-8 w-8 text-destructive" />
+                  <p className="text-destructive">{usageError}</p>
+                  <Button onClick={fetchUsage} variant="outline">
+                    Try Again
+                  </Button>
+                </div>
+              </CardContent>
+            </Card>
+          )
+        }
+
+        if (!usageData) {
+          return null
+        }
+
+        // Get chart data based on view selection
+        const chartData = usageChartView === "daily"
+          ? usageData.daily
+          : usageChartView === "weekly"
+          ? usageData.weekly
+          : usageData.monthly
+
+        // Find max requests for scaling bars
+        const maxRequests = Math.max(...chartData.map(d => d.requests), 1)
+
+        // Format service name for display
+        const formatServiceName = (service: string) => {
+          const names: Record<string, string> = {
+            supadata: "Supadata",
+            zai: "Z.AI (GLM-4.7)",
+            gemini: "Gemini",
+            groq: "Groq",
+            openai: "OpenAI",
+          }
+          return names[service.toLowerCase()] || service
+        }
+
+        // Format date for display
+        const formatPeriod = (period: string) => {
+          if (usageChartView === "daily") {
+            // YYYY-MM-DD -> Mon DD
+            const date = new Date(period)
+            return date.toLocaleDateString("en-US", { month: "short", day: "numeric" })
+          } else if (usageChartView === "weekly") {
+            // YYYY-WXX -> Week XX
+            const match = period.match(/W(\d+)/)
+            return match ? `Week ${match[1]}` : period
+          } else {
+            // YYYY-MM -> Mon YYYY
+            const [year, month] = period.split("-")
+            const date = new Date(parseInt(year), parseInt(month) - 1)
+            return date.toLocaleDateString("en-US", { month: "short", year: "numeric" })
+          }
+        }
+
+        // Format timestamp for log table
+        const formatTimestamp = (timestamp: string) => {
+          const date = new Date(timestamp)
+          return date.toLocaleString("en-US", {
+            month: "short",
+            day: "numeric",
+            hour: "numeric",
+            minute: "2-digit",
+            hour12: true,
+          })
+        }
+
         return (
-          <Card>
-            <CardHeader>
-              <CardTitle>Usage Statistics</CardTitle>
-              <CardDescription>
-                View your API usage statistics and history.
-              </CardDescription>
-            </CardHeader>
-            <CardContent>
-              <p className="text-muted-foreground text-sm">
-                Usage statistics will be implemented in the next update.
-              </p>
-            </CardContent>
-          </Card>
+          <div className="space-y-4">
+            {/* Header Card */}
+            <Card>
+              <CardHeader>
+                <CardTitle>Usage Statistics</CardTitle>
+                <CardDescription>
+                  View your API usage statistics and history.
+                </CardDescription>
+              </CardHeader>
+            </Card>
+
+            {/* Summary Stats */}
+            <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
+              <Card>
+                <CardContent className="pt-6">
+                  <div className="text-center">
+                    <p className="text-2xl font-bold">{usageData.totalRequests.toLocaleString()}</p>
+                    <p className="text-sm text-muted-foreground">Total Requests</p>
+                  </div>
+                </CardContent>
+              </Card>
+              <Card>
+                <CardContent className="pt-6">
+                  <div className="text-center">
+                    <p className="text-2xl font-bold">{usageData.totalCredits.toFixed(1)}</p>
+                    <p className="text-sm text-muted-foreground">Credits Used</p>
+                  </div>
+                </CardContent>
+              </Card>
+              <Card>
+                <CardContent className="pt-6">
+                  <div className="text-center">
+                    <p className="text-2xl font-bold">{usageData.totalTokens.toLocaleString()}</p>
+                    <p className="text-sm text-muted-foreground">Tokens Used</p>
+                  </div>
+                </CardContent>
+              </Card>
+            </div>
+
+            {/* Usage by Service */}
+            <Card>
+              <CardHeader className="pb-3">
+                <CardTitle className="text-base">Usage by Service</CardTitle>
+              </CardHeader>
+              <CardContent>
+                {usageData.byService.length === 0 ? (
+                  <p className="text-sm text-muted-foreground text-center py-4">
+                    No usage data available yet.
+                  </p>
+                ) : (
+                  <div className="space-y-4">
+                    {usageData.byService.map((service) => (
+                      <div key={service.service} className="space-y-2">
+                        <div className="flex items-center justify-between text-sm">
+                          <span className="font-medium">{formatServiceName(service.service)}</span>
+                          <span className="text-muted-foreground">
+                            {service.totalRequests} requests
+                          </span>
+                        </div>
+                        <div className="flex items-center gap-4 text-xs text-muted-foreground">
+                          <span>{service.totalCredits.toFixed(1)} credits</span>
+                          <span>{service.totalTokens.toLocaleString()} tokens</span>
+                        </div>
+                        {/* Progress bar showing proportion of total */}
+                        <div className="h-2 bg-secondary rounded-full overflow-hidden">
+                          <div
+                            className="h-full bg-primary transition-all duration-300"
+                            style={{
+                              width: `${Math.max(5, (service.totalRequests / usageData.totalRequests) * 100)}%`
+                            }}
+                          />
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </CardContent>
+            </Card>
+
+            {/* Usage Over Time Chart */}
+            <Card>
+              <CardHeader className="pb-3">
+                <div className="flex items-center justify-between">
+                  <CardTitle className="text-base">Usage Over Time</CardTitle>
+                  <div className="flex gap-1">
+                    <Button
+                      variant={usageChartView === "daily" ? "default" : "outline"}
+                      size="sm"
+                      onClick={() => setUsageChartView("daily")}
+                    >
+                      Daily
+                    </Button>
+                    <Button
+                      variant={usageChartView === "weekly" ? "default" : "outline"}
+                      size="sm"
+                      onClick={() => setUsageChartView("weekly")}
+                    >
+                      Weekly
+                    </Button>
+                    <Button
+                      variant={usageChartView === "monthly" ? "default" : "outline"}
+                      size="sm"
+                      onClick={() => setUsageChartView("monthly")}
+                    >
+                      Monthly
+                    </Button>
+                  </div>
+                </div>
+              </CardHeader>
+              <CardContent>
+                {chartData.length === 0 ? (
+                  <p className="text-sm text-muted-foreground text-center py-8">
+                    No usage data for this period.
+                  </p>
+                ) : (
+                  <div className="space-y-2">
+                    {/* Simple bar chart */}
+                    <div className="flex items-end gap-1 h-32">
+                      {chartData.slice(-14).map((data, index) => (
+                        <div
+                          key={data.period}
+                          className="flex-1 flex flex-col items-center gap-1 min-w-0"
+                        >
+                          <div className="w-full flex flex-col justify-end h-24">
+                            <div
+                              className="w-full bg-primary rounded-t transition-all duration-300 min-h-[4px]"
+                              style={{
+                                height: `${(data.requests / maxRequests) * 100}%`
+                              }}
+                              title={`${data.requests} requests`}
+                            />
+                          </div>
+                          <span className="text-[10px] text-muted-foreground truncate w-full text-center">
+                            {chartData.length <= 7 ? formatPeriod(data.period) : (index % 2 === 0 ? formatPeriod(data.period) : "")}
+                          </span>
+                        </div>
+                      ))}
+                    </div>
+                    {/* Chart legend */}
+                    <div className="flex justify-center gap-4 text-xs text-muted-foreground pt-2">
+                      <span>
+                        Total: {chartData.reduce((sum, d) => sum + d.requests, 0)} requests
+                      </span>
+                      <span>
+                        {chartData.reduce((sum, d) => sum + d.credits, 0).toFixed(1)} credits
+                      </span>
+                    </div>
+                  </div>
+                )}
+              </CardContent>
+            </Card>
+
+            {/* Recent Requests Log */}
+            <Card>
+              <CardHeader className="pb-3">
+                <CardTitle className="text-base">Recent Requests</CardTitle>
+                <CardDescription>
+                  Last {Math.min(usageData.logs.length, 100)} API requests
+                </CardDescription>
+              </CardHeader>
+              <CardContent>
+                {usageData.logs.length === 0 ? (
+                  <p className="text-sm text-muted-foreground text-center py-4">
+                    No requests logged yet.
+                  </p>
+                ) : (
+                  <div className="overflow-x-auto">
+                    <table className="w-full text-sm">
+                      <thead>
+                        <tr className="border-b">
+                          <th className="text-left py-2 px-2 font-medium">Time</th>
+                          <th className="text-left py-2 px-2 font-medium">Service</th>
+                          <th className="text-left py-2 px-2 font-medium hidden sm:table-cell">Endpoint</th>
+                          <th className="text-right py-2 px-2 font-medium">Credits</th>
+                          <th className="text-right py-2 px-2 font-medium hidden sm:table-cell">Tokens</th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {usageData.logs.slice(0, 20).map((log) => (
+                          <tr key={log.id} className="border-b border-border/50 hover:bg-muted/50">
+                            <td className="py-2 px-2 text-muted-foreground whitespace-nowrap">
+                              {formatTimestamp(log.timestamp)}
+                            </td>
+                            <td className="py-2 px-2">
+                              <span className="inline-flex items-center gap-1.5">
+                                <span className="w-2 h-2 rounded-full bg-primary" />
+                                {formatServiceName(log.service)}
+                              </span>
+                            </td>
+                            <td className="py-2 px-2 text-muted-foreground hidden sm:table-cell truncate max-w-[200px]">
+                              {log.endpoint}
+                            </td>
+                            <td className="py-2 px-2 text-right tabular-nums">
+                              {log.creditsUsed.toFixed(1)}
+                            </td>
+                            <td className="py-2 px-2 text-right tabular-nums hidden sm:table-cell">
+                              {log.tokensUsed.toLocaleString()}
+                            </td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                    {usageData.logs.length > 20 && (
+                      <p className="text-xs text-muted-foreground text-center py-3">
+                        Showing 20 of {usageData.logs.length} recent requests
+                      </p>
+                    )}
+                  </div>
+                )}
+              </CardContent>
+            </Card>
+          </div>
         )
+      }
       default:
         return null
     }
