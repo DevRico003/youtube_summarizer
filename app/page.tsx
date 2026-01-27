@@ -2,96 +2,157 @@
 
 import { useState } from "react"
 import { useRouter } from "next/navigation"
-import { Youtube, Headphones } from "lucide-react"
+import { Youtube, AlertCircle, Loader2 } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
-import { AVAILABLE_LANGUAGES, extractVideoId } from "@/lib/youtube"
+import { extractVideoId } from "@/lib/youtube"
 import { ModelSelector } from "@/components/ModelSelector"
+import { DetailSlider } from "@/components/DetailSlider"
 
 export default function Home() {
   const [url, setUrl] = useState("")
-  const [language, setLanguage] = useState("English")
-  const [mode, setMode] = useState<"video" | "podcast">("video")
+  const [detailLevel, setDetailLevel] = useState(3)
   const [aiModel, setAiModel] = useState("")
+  const [thinkingMode, setThinkingMode] = useState(false)
+  const [urlError, setUrlError] = useState("")
+  const [isSubmitting, setIsSubmitting] = useState(false)
   const router = useRouter()
+
+  const validateUrl = (inputUrl: string): boolean => {
+    if (!inputUrl.trim()) {
+      setUrlError("Please enter a YouTube URL")
+      return false
+    }
+
+    try {
+      extractVideoId(inputUrl)
+      setUrlError("")
+      return true
+    } catch {
+      setUrlError("Invalid YouTube URL. Please enter a valid YouTube video URL.")
+      return false
+    }
+  }
+
+  const handleUrlChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const newUrl = e.target.value.replace(/^@/, "")
+    setUrl(newUrl)
+    if (urlError && newUrl) {
+      validateUrl(newUrl)
+    } else if (!newUrl) {
+      setUrlError("")
+    }
+  }
+
+  const handleUrlBlur = () => {
+    if (url) {
+      validateUrl(url)
+    }
+  }
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault()
+
+    if (!validateUrl(url)) {
+      return
+    }
+
+    setIsSubmitting(true)
 
     try {
       const videoId = extractVideoId(url)
       const cleanUrl = `https://www.youtube.com/watch?v=${videoId}`
       const encodedUrl = btoa(cleanUrl).replace(/\+/g, "-").replace(/\//g, "_").replace(/=+$/, "")
-      const summaryUrl = `/summary/${encodedUrl}?lang=${AVAILABLE_LANGUAGES[language as keyof typeof AVAILABLE_LANGUAGES]}&mode=${mode}&model=${aiModel}`
+
+      const params = new URLSearchParams({
+        detail: detailLevel.toString(),
+        model: aiModel,
+      })
+
+      if (thinkingMode && aiModel === "glm-4.7") {
+        params.set("thinking", "true")
+      }
+
+      const summaryUrl = `/summary/${encodedUrl}?${params.toString()}`
       router.push(summaryUrl)
-    } catch (error) {
-      alert("Invalid YouTube URL. Please enter a valid YouTube URL.")
+    } catch {
+      setUrlError("Invalid YouTube URL. Please enter a valid YouTube URL.")
+      setIsSubmitting(false)
     }
   }
 
   return (
     <div className="min-h-screen bg-background flex items-center justify-center p-4">
-      <Card className="w-full max-w-md">
-        <CardHeader>
-          <CardTitle className="text-3xl font-bold text-center">YouTube AI Summarizer</CardTitle>
-          <CardDescription className="text-center">Enter a YouTube URL to get an AI-generated summary</CardDescription>
+      <Card className="w-full max-w-lg">
+        <CardHeader className="text-center space-y-2">
+          <div className="mx-auto w-16 h-16 bg-primary/10 rounded-full flex items-center justify-center mb-2">
+            <Youtube className="w-8 h-8 text-primary" />
+          </div>
+          <CardTitle className="text-2xl sm:text-3xl font-bold">YouTube Summarizer</CardTitle>
+          <CardDescription className="text-sm sm:text-base">
+            Get AI-powered summaries with topic timelines
+          </CardDescription>
         </CardHeader>
         <CardContent>
           <form onSubmit={handleSubmit} className="space-y-6">
+            {/* URL Input */}
             <div className="space-y-2">
-              <Input
-                type="url"
-                value={url}
-                onChange={(e) => setUrl(e.target.value.replace(/^@/, ""))}
-                placeholder="https://youtube.com/watch?v=..."
-                required
-              />
+              <label htmlFor="url-input" className="text-sm font-medium">
+                YouTube URL
+              </label>
+              <div className="relative">
+                <Youtube className="absolute left-3 top-1/2 -translate-y-1/2 h-5 w-5 text-muted-foreground" />
+                <Input
+                  id="url-input"
+                  type="url"
+                  value={url}
+                  onChange={handleUrlChange}
+                  onBlur={handleUrlBlur}
+                  placeholder="https://youtube.com/watch?v=..."
+                  className={`pl-10 h-12 ${urlError ? "border-destructive focus-visible:ring-destructive" : ""}`}
+                  required
+                  disabled={isSubmitting}
+                  aria-describedby={urlError ? "url-error" : undefined}
+                  aria-invalid={!!urlError}
+                />
+              </div>
+              {urlError && (
+                <p id="url-error" className="text-sm text-destructive flex items-center gap-1">
+                  <AlertCircle className="h-4 w-4" />
+                  {urlError}
+                </p>
+              )}
             </div>
 
-            <div className="grid grid-cols-2 gap-4">
-              <Select value={language} onValueChange={setLanguage}>
-                <SelectTrigger>
-                  <SelectValue placeholder="Select Language" />
-                </SelectTrigger>
-                <SelectContent>
-                  {Object.keys(AVAILABLE_LANGUAGES).map((lang) => (
-                    <SelectItem key={lang} value={lang}>
-                      {lang}
-                    </SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
-
-              <Select value={mode} onValueChange={(value) => setMode(value as "video" | "podcast")}>
-                <SelectTrigger>
-                  <SelectValue placeholder="Select Mode" />
-                </SelectTrigger>
-                <SelectContent>
-                  <SelectItem value="video">
-                    <div className="flex items-center">
-                      <Youtube className="mr-2 h-4 w-4" />
-                      <span>Video Summary</span>
-                    </div>
-                  </SelectItem>
-                  <SelectItem value="podcast">
-                    <div className="flex items-center">
-                      <Headphones className="mr-2 h-4 w-4" />
-                      <span>Podcast Style</span>
-                    </div>
-                  </SelectItem>
-                </SelectContent>
-              </Select>
-            </div>
-
-            <ModelSelector
-              value={aiModel}
-              onChange={(model: string) => setAiModel(model)}
+            {/* Detail Level Slider */}
+            <DetailSlider
+              value={detailLevel}
+              onChange={setDetailLevel}
             />
 
-            <Button type="submit" className="w-full">
-              Generate Summary
+            {/* Model Selector */}
+            <ModelSelector
+              value={aiModel}
+              onChange={setAiModel}
+              thinkingMode={thinkingMode}
+              onThinkingModeChange={setThinkingMode}
+            />
+
+            {/* Submit Button */}
+            <Button
+              type="submit"
+              className="w-full h-12 text-base font-medium"
+              disabled={isSubmitting || !url.trim()}
+            >
+              {isSubmitting ? (
+                <>
+                  <Loader2 className="mr-2 h-5 w-5 animate-spin" />
+                  Generating...
+                </>
+              ) : (
+                "Summarize"
+              )}
             </Button>
           </form>
         </CardContent>
@@ -99,4 +160,3 @@ export default function Home() {
     </div>
   )
 }
-
