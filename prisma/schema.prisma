@@ -7,16 +7,87 @@ datasource db {
   url      = "file:./dev.db"
 }
 
+model User {
+  id           String   @id @default(cuid())
+  email        String   @unique
+  passwordHash String
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+
+  topicEdits  UserTopicEdit[]
+  preferences UserPreference?
+  usageLogs   ApiUsageLog[]
+}
+
 model Summary {
+  id            String   @id @default(cuid())
+  videoId       String   @unique
+  title         String
+  content       String
+  transcript    String
+  hasTimestamps Boolean  @default(false)
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+
+  topics     Topic[]
+  topicEdits UserTopicEdit[]
+}
+
+model Topic {
   id        String   @id @default(cuid())
-  videoId   String
+  summaryId String
   title     String
-  content   String
-  language  String
-  mode      String   @default("video")
-  source    String?
+  startMs   Int
+  endMs     Int
+  order     Int
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
-  @@unique([videoId, language])
+  summary    Summary         @relation(fields: [summaryId], references: [id], onDelete: Cascade)
+  topicEdits UserTopicEdit[]
+}
+
+model UserTopicEdit {
+  id            String  @id @default(cuid())
+  userId        String
+  summaryId     String
+  topicId       String
+  customTitle   String?
+  customStartMs Int?
+  customEndMs   Int?
+
+  user    User    @relation(fields: [userId], references: [id], onDelete: Cascade)
+  summary Summary @relation(fields: [summaryId], references: [id], onDelete: Cascade)
+  topic   Topic   @relation(fields: [topicId], references: [id], onDelete: Cascade)
+
+  @@unique([userId, topicId])
+}
+
+model UserPreference {
+  id             String  @id @default(cuid())
+  userId         String  @unique
+  language       String  @default("en")
+  detailLevel    Int     @default(3)
+  preferredModel String  @default("glm-4.7")
+  customPrompt   String?
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+}
+
+model ApiUsageLog {
+  id          String   @id @default(cuid())
+  userId      String?
+  service     String
+  endpoint    String
+  creditsUsed Float    @default(0)
+  tokensUsed  Int      @default(0)
+  timestamp   DateTime @default(now())
+
+  user User? @relation(fields: [userId], references: [id], onDelete: SetNull)
+}
+
+model AppConfig {
+  id             String @id @default(cuid())
+  key            String @unique
+  encryptedValue String
 }
