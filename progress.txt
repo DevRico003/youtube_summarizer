@@ -44,7 +44,120 @@
 - TopicEditor: Editable titles (double-click), draggable boundaries, contiguous constraint enforcement
 - TopicEditor: Uses same TOPIC_COLORS palette as Timeline for visual consistency
 - ESLint: Using ESLint 9 with typescript-eslint, config in eslint.config.mjs
+- Protected API endpoints: Use `Authorization: Bearer <token>` header with `verifyToken()` from lib/auth.ts
+- UserTopicEdit: Uses `@@unique([userId, topicId])` constraint for upsert by composite key
+- DetailSlider: 5 levels (Brief, Concise, Balanced, Detailed, Comprehensive), returns 1-5 integer
+- ModelSelector: V2 uses `value`/`onChange` props (not `selectedModel`/`onModelChange`)
+- ModelSelector: Models fetched from GET /api/summarize which returns `{ models: ModelInfo[] }`
+- ModelSelector: Thinking mode toggle shows only when GLM-4.7 is selected and `onThinkingModeChange` is provided
+- UI components: Switch (radix-ui/react-switch) and Tooltip (radix-ui/react-tooltip) available
 
+- ProgressStages: Component for showing 4-stage progress (fetching_transcript, analyzing_topics, generating_summary, building_timeline)
+- ProgressStages: Uses Check icon for completed, Loader2 with animate-spin for current, numbered circle for pending
+- ProgressStages: Stage type exported for consumers to import
+
+- Home page: V2 uses DetailSlider and ModelSelector (no more language/mode selectors)
+- Home page: URL input with validation using `extractVideoId()` from lib/youtube
+- Home page: Query params: `detail`, `model`, `thinking` (no `lang` or `mode`)
+- Home page: Uses sm:text-* responsive classes for mobile-first typography
+
+- Summary page V2: Mobile-first vertical stack layout (thumbnail → timeline → chapters → summary)
+- Summary page V2: Uses SummaryData interface matching API response structure
+- Summary page V2: Thumbnail with play button overlay using YouTube thumbnail URLs (maxresdefault with hqdefault fallback)
+- Summary page V2: Inline error toast with dismiss button (X icon)
+- Summary page V2: ProgressStages component during loading state
+- Summary page V2: Query params changed from lang/mode/model to just `detail` (1-5)
+
+---
+
+## 2026-01-27 - US-032
+- What was implemented: Redesigned summary page with mobile-first vertical layout
+- Files changed:
+  - app/summary/[videoUrl]/page.tsx (rewritten)
+- **Learnings for future iterations:**
+  - V2 API returns SummaryData with topics array, hasTimestamps boolean, and videoId
+  - Video duration calculated from max(topics.endMs) when topics exist
+  - Thumbnail URL: `https://img.youtube.com/vi/${videoId}/maxresdefault.jpg` with hqdefault fallback
+  - Play button overlay: red-600 bg, group-hover:scale-110 transition
+  - Timeline only shown when hasTimestamps && topics.length > 0 && videoDuration > 0
+  - Inline error toast: destructive/15 bg with AlertCircle icon and X dismiss button
+  - Loading state shows thumbnail placeholder with ProgressStages component
+  - Stream parsing uses buffer to handle partial JSON lines
+
+---
+
+## 2026-01-27 - US-031
+- What was implemented: Redesigned home page with modern layout and V2 components
+- Files changed:
+  - app/page.tsx (rewritten)
+- **Learnings for future iterations:**
+  - Removed V1 language and mode selectors (V2 uses detailLevel instead)
+  - URL validation on blur and submit with inline error display
+  - New query params: `detail`, `model`, `thinking` (when GLM-4.7 with thinking mode)
+  - Mobile-first design with responsive text sizing (text-2xl sm:text-3xl)
+  - Icon in centered circular container using bg-primary/10 background
+  - Input has YouTube icon inside with pl-10 padding
+  - Button shows loading spinner (Loader2 with animate-spin) when submitting
+
+---
+
+## 2026-01-27 - US-030
+- What was implemented: Created ProgressStages component for displaying summary generation progress
+- Files changed:
+  - components/ProgressStages.tsx (new)
+- **Learnings for future iterations:**
+  - ProgressStages accepts `currentStage: Stage | null` prop to indicate current progress
+  - Four stages: fetching_transcript, analyzing_topics, generating_summary, building_timeline
+  - Stage styling: green for completed, blue for current (with spinner), muted for pending
+  - Uses Check icon from lucide-react for completed stages
+  - Uses Loader2 with animate-spin for current stage spinner effect
+  - Pending stages show step number (1-4) in circle
+  - Dark mode supported via dark: prefixed Tailwind classes
+
+---
+
+## 2026-01-27 - US-029
+- What was implemented: Updated ModelSelector component with model availability, status indicators, and thinking mode
+- Files changed:
+  - components/ModelSelector.tsx (rewritten for V2)
+  - components/ui/switch.tsx (new)
+  - components/ui/tooltip.tsx (new)
+  - package.json (added @radix-ui/react-switch, @radix-ui/react-tooltip)
+  - app/page.tsx (updated to use new ModelSelector props)
+- **Learnings for future iterations:**
+  - ModelSelector fetches models from `/api/summarize` GET endpoint on mount
+  - Auto-selects first available model if none selected or current unavailable
+  - Green/red status indicators using w-2 h-2 rounded-full bg-green-500/bg-red-500
+  - Thinking mode toggle only visible for GLM-4.7 when onThinkingModeChange prop provided
+  - Each model has icon from lucide-react (Brain, Sparkles, Cpu, Bot)
+  - Model descriptions displayed in SelectItem and via Tooltip on info icon
+  - Uses TooltipProvider wrapper for tooltips to work
+
+---
+
+## 2026-01-27 - US-028
+- What was implemented: Created DetailSlider component with 5 detail levels
+- Files changed:
+  - components/DetailSlider.tsx (new)
+- **Learnings for future iterations:**
+  - DetailSlider uses range input with 1-5 values mapping to detail level labels
+  - Each level has label and description for UI feedback
+  - onClick on dot markers allows quick level selection
+  - Value passed to onChange is integer (1-5), maps to detailLevel in API
+  - Uses accent-primary class for slider color theming
+---
+
+## 2026-01-27 - US-027
+- What was implemented: Created API endpoint for saving and retrieving user topic edits
+- Files changed:
+  - app/api/topics/edit/route.ts (new)
+- **Learnings for future iterations:**
+  - Protected API pattern: Extract token from `Authorization: Bearer <token>` header
+  - Use `verifyToken()` from lib/auth.ts to validate JWT and get userId
+  - Prisma upsert with compound unique key: `userId_topicId: { userId, topicId }`
+  - GET endpoint returns topics with user edits merged (isEdited flag indicates customization)
+  - POST validates that topic IDs belong to the specified summary before saving
+  - UserTopicEdit stores only custom values (null means use original)
 ---
 
 ## 2026-01-27 - US-026
