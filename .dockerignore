@@ -30,3 +30,15 @@ prisma/*.db-journal
 # OS generated files
 .DS_Store
 Thumbs.db
+
+dev.db
+CLAUDE.md
+AGENTS.md
+scripts
+.claude
+prd.json
+progress.txt
+.last-branch
+prd.json.example
+tasks
+prd.json

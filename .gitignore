@@ -41,3 +41,13 @@ yarn-error.log*
 next-env.d.ts
 
 dev.db
+CLAUDE.md
+AGENTS.md
+scripts
+.claude
+prd.json
+progress.txt
+.last-branch
+prd.json.example
+tasks
+prd.json
