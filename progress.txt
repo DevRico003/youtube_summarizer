@@ -1,4 +1,9 @@
 ## Codebase Patterns
+- Playwright E2E testing: Use `npm run test:e2e` for E2E tests, config in playwright.config.ts
+- E2E tests go in `e2e/` directory with `.spec.ts` extension
+- E2E route mocking: Use `page.route()` to intercept API calls and return mock responses
+- E2E async state: Wait for generated values with `await expect(input).not.toHaveValue("", { timeout: 5000 })`
+- E2E clipboard: Grant permissions with `context.grantPermissions(["clipboard-read", "clipboard-write"])`
 - Jest testing: Use `npm test` to run tests, configure with jest.config.js using ts-jest preset
 - Test path alias: `@/` maps to project root in jest.config.js via moduleNameMapper
 - Tests go in `__tests__/lib/` directory mirroring the lib/ structure, `__tests__/api/` for API tests
@@ -918,4 +923,38 @@ Thread: https://ampcode.com/threads/$AMP_CURRENT_THREAD_ID
   - Video ID extraction: Use valid 11-character YouTube video IDs in test URLs (e.g., `dQw4w9WgXcQ`)
   - URL format tests: Standard watch?v=, shorts/, embed/, youtu.be/ formats all extract the same videoId
   - Topic extraction only runs when `hasTimestamps && videoDurationMs > 0`; gracefully continues if extraction fails
+---
+
+## 2026-01-27 - US-056
+- What was implemented: Created comprehensive E2E tests for the setup wizard flow
+- Files changed:
+  - e2e/setup-wizard.spec.ts (new - 19 tests for setup wizard)
+  - playwright.config.ts (new - Playwright configuration)
+  - package.json (added @playwright/test, test:e2e, test:e2e:ui scripts)
+- **Learnings for future iterations:**
+  - E2E tests go in `e2e/` directory with `.spec.ts` extension
+  - Use `page.route()` to intercept and mock API calls in Playwright tests
+  - Mock API responses with `route.fulfill({ status, contentType, body })`
+  - For clipboard tests, grant permissions: `context.grantPermissions(["clipboard-read", "clipboard-write"])`
+  - Wait for async state updates: `await expect(input).not.toHaveValue("", { timeout: 5000 })`
+  - Use `{ exact: true }` for getByText when multiple elements contain similar text
+  - Test selectors: `page.locator('input[readonly]')` for readonly inputs
+  - Playwright webServer config starts dev server automatically for tests
+  - Test wizard navigation with skip/next/back buttons to cover all paths
+  - API mock pattern: Check `apiKey.startsWith("valid-")` vs `"invalid-"` to simulate success/failure
+---
+
+## 2026-01-27 - US-057
+- What was implemented: Created comprehensive E2E tests for the summary generation flow
+- Files changed:
+  - e2e/summary.spec.ts (new - 19 tests covering summary generation)
+- **Learnings for future iterations:**
+  - E2E streaming response mock: Use `createStreamingResponse()` helper to build mock stream events
+  - Streaming response format: Each line is JSON with `{ type: "progress"|"complete"|"error", ... }`
+  - E2E strict mode: Use `{ exact: true }` for getByText when multiple elements contain similar text
+  - E2E progress stages: Fast mocked responses may skip loading state; use `Promise.race()` to catch either loading or final state
+  - Summary page URL encoding: Use `btoa(url).replace(/\+/g, "-").replace(/\//g, "_").replace(/=+$/g, "")` for URL-safe base64
+  - E2E download test: Use `page.waitForEvent("download")` to verify file downloads
+  - E2E error handling: Mock 400 responses return JSON error, streaming errors have `type: "error"` event
+  - Timeline visibility test: Use `page.locator('[aria-label*="TopicTitle"]')` to find topic segments
 ---
