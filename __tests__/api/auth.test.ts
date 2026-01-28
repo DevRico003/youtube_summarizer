@@ -1,20 +1,27 @@
 import { NextRequest } from 'next/server';
 import { POST as registerHandler } from '@/app/api/auth/register/route';
 import { POST as loginHandler } from '@/app/api/auth/login/route';
-import { prisma } from '@/lib/prisma';
 import { hashPassword } from '@/lib/auth';
 
 // Mock Prisma
-jest.mock('@/lib/prisma', () => ({
-  prisma: {
-    user: {
-      findUnique: jest.fn(),
-      create: jest.fn(),
+jest.mock('@/lib/prisma', () => {
+  const mockFindUnique = jest.fn();
+  const mockCreate = jest.fn();
+  return {
+    prisma: {
+      user: {
+        findUnique: mockFindUnique,
+        create: mockCreate,
+      },
     },
-  },
-}));
+    // Export mock functions for test usage
+    __mockFindUnique: mockFindUnique,
+    __mockCreate: mockCreate,
+  };
+});
 
-const mockedPrisma = prisma as jest.Mocked<typeof prisma>;
+// Get reference to mocked functions
+const { __mockFindUnique: mockFindUnique, __mockCreate: mockCreate } = jest.requireMock('@/lib/prisma');
 
 // Set up APP_SECRET for JWT generation
 const TEST_APP_SECRET = 'test-app-secret-for-jwt-signing-12345';
@@ -36,6 +43,8 @@ describe('Auth API Integration Tests', () => {
 
   beforeEach(() => {
     jest.clearAllMocks();
+    mockFindUnique.mockReset();
+    mockCreate.mockReset();
   });
 
   // Helper to create NextRequest with JSON body
@@ -56,10 +65,10 @@ describe('Auth API Integration Tests', () => {
       const userId = 'test-user-id-123';
 
       // Mock: No existing user found
-      (mockedPrisma.user.findUnique as jest.Mock).mockResolvedValue(null);
+      mockFindUnique.mockResolvedValue(null);
 
       // Mock: User creation
-      (mockedPrisma.user.create as jest.Mock).mockResolvedValue({
+      mockCreate.mockResolvedValue({
         id: userId,
         email: email.toLowerCase(),
         passwordHash: 'hashed-password',
@@ -81,10 +90,10 @@ describe('Auth API Integration Tests', () => {
       });
 
       // Verify Prisma calls
-      expect(mockedPrisma.user.findUnique).toHaveBeenCalledWith({
+      expect(mockFindUnique).toHaveBeenCalledWith({
         where: { email: email.toLowerCase() },
       });
-      expect(mockedPrisma.user.create).toHaveBeenCalledWith({
+      expect(mockCreate).toHaveBeenCalledWith({
         data: expect.objectContaining({
           email: email.toLowerCase(),
           passwordHash: expect.any(String),
@@ -97,8 +106,8 @@ describe('Auth API Integration Tests', () => {
       const password = 'securePassword123';
       const userId = 'test-user-id-456';
 
-      (mockedPrisma.user.findUnique as jest.Mock).mockResolvedValue(null);
-      (mockedPrisma.user.create as jest.Mock).mockResolvedValue({
+      mockFindUnique.mockResolvedValue(null);
+      mockCreate.mockResolvedValue({
         id: userId,
         email: email.toLowerCase(),
         passwordHash: 'hashed-password',
@@ -194,8 +203,8 @@ describe('Auth API Integration Tests', () => {
       const password = '12345678';
       const userId = 'test-user-id-789';
 
-      (mockedPrisma.user.findUnique as jest.Mock).mockResolvedValue(null);
-      (mockedPrisma.user.create as jest.Mock).mockResolvedValue({
+      mockFindUnique.mockResolvedValue(null);
+      mockCreate.mockResolvedValue({
         id: userId,
         email: email.toLowerCase(),
         passwordHash: 'hashed-password',
@@ -214,7 +223,7 @@ describe('Auth API Integration Tests', () => {
       const password = 'securePassword123';
 
       // Mock: User already exists
-      (mockedPrisma.user.findUnique as jest.Mock).mockResolvedValue({
+      mockFindUnique.mockResolvedValue({
         id: 'existing-user-id',
         email: email.toLowerCase(),
         passwordHash: 'existing-hash',
@@ -230,7 +239,7 @@ describe('Auth API Integration Tests', () => {
       expect(data.error).toBe('An account with this email already exists');
 
       // Should not attempt to create user
-      expect(mockedPrisma.user.create).not.toHaveBeenCalled();
+      expect(mockCreate).not.toHaveBeenCalled();
     });
 
     it('should return 409 for existing email with different case', async () => {
@@ -239,7 +248,7 @@ describe('Auth API Integration Tests', () => {
       const password = 'securePassword123';
 
       // Mock: User exists with lowercase email
-      (mockedPrisma.user.findUnique as jest.Mock).mockResolvedValue({
+      mockFindUnique.mockResolvedValue({
         id: 'existing-user-id',
         email: existingEmail,
         passwordHash: 'existing-hash',
@@ -256,7 +265,7 @@ describe('Auth API Integration Tests', () => {
     });
 
     it('should return 500 when database error occurs during user lookup', async () => {
-      (mockedPrisma.user.findUnique as jest.Mock).mockRejectedValue(
+      mockFindUnique.mockRejectedValue(
         new Error('Database connection error')
       );
 
@@ -272,8 +281,8 @@ describe('Auth API Integration Tests', () => {
     });
 
     it('should return 500 when database error occurs during user creation', async () => {
-      (mockedPrisma.user.findUnique as jest.Mock).mockResolvedValue(null);
-      (mockedPrisma.user.create as jest.Mock).mockRejectedValue(
+      mockFindUnique.mockResolvedValue(null);
+      mockCreate.mockRejectedValue(
         new Error('Database write error')
       );
 
@@ -303,7 +312,7 @@ describe('Auth API Integration Tests', () => {
       const userId = 'user-id-abc';
 
       // Mock: User found
-      (mockedPrisma.user.findUnique as jest.Mock).mockResolvedValue({
+      mockFindUnique.mockResolvedValue({
         id: userId,
         email: email.toLowerCase(),
         passwordHash: testPasswordHash,
@@ -331,7 +340,7 @@ describe('Auth API Integration Tests', () => {
       const password = 'correctPassword123';
       const userId = 'user-id-abc';
 
-      (mockedPrisma.user.findUnique as jest.Mock).mockResolvedValue({
+      mockFindUnique.mockResolvedValue({
         id: userId,
         email: storedEmail,
         passwordHash: testPasswordHash,
@@ -345,7 +354,7 @@ describe('Auth API Integration Tests', () => {
       expect(response.status).toBe(200);
 
       // Verify lookup was done with lowercase email
-      expect(mockedPrisma.user.findUnique).toHaveBeenCalledWith({
+      expect(mockFindUnique).toHaveBeenCalledWith({
         where: { email: loginEmail.toLowerCase() },
       });
     });
@@ -382,7 +391,7 @@ describe('Auth API Integration Tests', () => {
       const password = 'somePassword123';
 
       // Mock: No user found
-      (mockedPrisma.user.findUnique as jest.Mock).mockResolvedValue(null);
+      mockFindUnique.mockResolvedValue(null);
 
       const request = createRequest({ email, password });
       const response = await loginHandler(request);
@@ -397,7 +406,7 @@ describe('Auth API Integration Tests', () => {
       const email = 'user@example.com';
       const correctPasswordHash = await hashPassword('correctPassword123');
 
-      (mockedPrisma.user.findUnique as jest.Mock).mockResolvedValue({
+      mockFindUnique.mockResolvedValue({
         id: 'user-id-123',
         email: email.toLowerCase(),
         passwordHash: correctPasswordHash,
@@ -416,7 +425,7 @@ describe('Auth API Integration Tests', () => {
 
     it('should return same error for non-existent user and wrong password (security)', async () => {
       // Test 1: Non-existent user
-      (mockedPrisma.user.findUnique as jest.Mock).mockResolvedValue(null);
+      mockFindUnique.mockResolvedValue(null);
       const request1 = createRequest({
         email: 'nonexistent@example.com',
         password: 'anyPassword123',
@@ -426,7 +435,7 @@ describe('Auth API Integration Tests', () => {
 
       // Test 2: Wrong password
       const correctPasswordHash = await hashPassword('correctPassword');
-      (mockedPrisma.user.findUnique as jest.Mock).mockResolvedValue({
+      mockFindUnique.mockResolvedValue({
         id: 'user-id-123',
         email: 'existing@example.com',
         passwordHash: correctPasswordHash,
@@ -447,7 +456,7 @@ describe('Auth API Integration Tests', () => {
     });
 
     it('should return 500 when database error occurs', async () => {
-      (mockedPrisma.user.findUnique as jest.Mock).mockRejectedValue(
+      mockFindUnique.mockRejectedValue(
         new Error('Database connection error')
       );
 
@@ -468,7 +477,7 @@ describe('Auth API Integration Tests', () => {
       const passwordHash = await hashPassword(password);
       const userId = 'user-id-special';
 
-      (mockedPrisma.user.findUnique as jest.Mock).mockResolvedValue({
+      mockFindUnique.mockResolvedValue({
         id: userId,
         email: email.toLowerCase(),
         passwordHash,
@@ -491,7 +500,7 @@ describe('Auth API Integration Tests', () => {
       const passwordHash = await hashPassword(password);
       const userId = 'user-id-unicode';
 
-      (mockedPrisma.user.findUnique as jest.Mock).mockResolvedValue({
+      mockFindUnique.mockResolvedValue({
         id: userId,
         email: email.toLowerCase(),
         passwordHash,
@@ -515,8 +524,8 @@ describe('Auth API Integration Tests', () => {
       const password = 'securePassword123';
       const userId = 'jwt-test-user-id';
 
-      (mockedPrisma.user.findUnique as jest.Mock).mockResolvedValue(null);
-      (mockedPrisma.user.create as jest.Mock).mockResolvedValue({
+      mockFindUnique.mockResolvedValue(null);
+      mockCreate.mockResolvedValue({
         id: userId,
         email: email.toLowerCase(),
         passwordHash: 'hashed-password',
@@ -541,7 +550,7 @@ describe('Auth API Integration Tests', () => {
       const passwordHash = await hashPassword(password);
       const userId = 'jwt-login-user-id';
 
-      (mockedPrisma.user.findUnique as jest.Mock).mockResolvedValue({
+      mockFindUnique.mockResolvedValue({
         id: userId,
         email: email.toLowerCase(),
         passwordHash,

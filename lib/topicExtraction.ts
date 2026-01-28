@@ -17,6 +17,7 @@ export interface TopicExtractionOptions {
   preferredModel?: ModelId;
   minTopics?: number;
   maxTopics?: number;
+  userId?: string;
 }
 
 /**
@@ -52,7 +53,11 @@ export async function extractTopics(
   videoDurationMs: number,
   options: TopicExtractionOptions = {}
 ): Promise<TopicExtractionResult> {
-  const { preferredModel, minTopics = 5, maxTopics = 15 } = options;
+  const { preferredModel, minTopics = 5, maxTopics = 15, userId } = options;
+
+  if (!userId) {
+    throw new Error("userId is required for topic extraction");
+  }
 
   const systemPrompt = `You are a video content analyzer. Your task is to identify the main topics discussed in a video based on its transcript and summary. You must output valid JSON only.`;
 
@@ -69,6 +74,7 @@ export async function extractTopics(
     maxTokens: 2048,
     temperature: 0.3, // Lower temperature for more consistent JSON output
     preferredModel,
+    userId,
   });
 
   // Parse the LLM response

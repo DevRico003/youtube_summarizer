@@ -1,14 +1,12 @@
 import { NextRequest, NextResponse } from "next/server";
-import { setConfig, hasAppSecret } from "@/lib/appConfig";
+import { hasAppSecret } from "@/lib/appConfig";
+import { authenticateRequest } from "@/lib/apiAuth";
+import { setUserApiKey } from "@/lib/userConfig";
+import { clearGlmClient } from "@/lib/glm";
+import { clearSupadataClient } from "@/lib/supadata";
 
-// Config keys for different services
-const CONFIG_KEYS: Record<string, string> = {
-  supadata: "SUPADATA_API_KEY",
-  zai: "ZAI_API_KEY",
-  gemini: "GEMINI_API_KEY",
-  groq: "GROQ_API_KEY",
-  openai: "OPENAI_API_KEY",
-};
+// Valid service names
+const VALID_SERVICES = ["supadata", "zai"];
 
 export async function POST(request: NextRequest) {
   try {
@@ -18,6 +16,12 @@ export async function POST(request: NextRequest) {
         { error: "APP_SECRET is not configured. Please complete Step 1 first." },
         { status: 400 }
       );
+    }
+
+    // Authenticate request
+    const auth = authenticateRequest(request);
+    if (!auth.success) {
+      return auth.response;
     }
 
     const body = await request.json();
@@ -30,8 +34,7 @@ export async function POST(request: NextRequest) {
       );
     }
 
-    const configKey = CONFIG_KEYS[service];
-    if (!configKey) {
+    if (!VALID_SERVICES.includes(service)) {
       return NextResponse.json(
         { error: `Unsupported service: ${service}` },
         { status: 400 }
@@ -47,8 +50,15 @@ export async function POST(request: NextRequest) {
       });
     }
 
-    // Save the encrypted API key to the database
-    await setConfig(configKey, apiKey.trim());
+    // Save the encrypted API key to the user's database record
+    await setUserApiKey(auth.userId, service, apiKey.trim());
+
+    // Clear cached clients so they pick up the new key
+    if (service === "supadata") {
+      clearSupadataClient(auth.userId);
+    } else if (service === "zai") {
+      clearGlmClient(auth.userId);
+    }
 
     return NextResponse.json({
       success: true,

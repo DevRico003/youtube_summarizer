@@ -1,23 +1,30 @@
 import { Supadata } from "@supadata/js";
-import { getConfig } from "./appConfig";
+import { getUserApiKey } from "./userConfig";
 
 /**
- * Singleton instance of the Supadata client
+ * Cache of Supadata clients per user
  */
-let supadataClient: Supadata | null = null;
+const supadataClients: Map<string, Supadata> = new Map();
 
 /**
- * Gets or creates a Supadata client instance
+ * Gets or creates a Supadata client instance for a specific user
+ * @param userId - The user's ID
  * @returns Promise<Supadata | null> - The Supadata client, or null if API key is not configured
  */
-export async function getSupadataClient(): Promise<Supadata | null> {
-  // Return cached instance if available
-  if (supadataClient) {
-    return supadataClient;
+export async function getSupadataClient(userId?: string): Promise<Supadata | null> {
+  if (!userId) {
+    console.warn("Supadata API key not configured - no userId provided");
+    return null;
   }
 
-  // Get API key from AppConfig
-  const apiKey = await getConfig("SUPADATA_API_KEY");
+  // Return cached instance if available for this user
+  const cached = supadataClients.get(userId);
+  if (cached) {
+    return cached;
+  }
+
+  // Get API key from user's configured keys
+  const apiKey = await getUserApiKey(userId, "supadata");
 
   // Handle missing API key gracefully
   if (!apiKey) {
@@ -25,27 +32,37 @@ export async function getSupadataClient(): Promise<Supadata | null> {
     return null;
   }
 
-  // Initialize and cache the client
-  supadataClient = new Supadata({
+  // Initialize and cache the client for this user
+  const client = new Supadata({
     apiKey: apiKey,
   });
+  supadataClients.set(userId, client);
 
-  return supadataClient;
+  return client;
 }
 
 /**
- * Clears the cached Supadata client instance
+ * Clears the cached Supadata client instance for a user
  * Useful when API key is updated
+ * @param userId - The user's ID (if not provided, clears all)
  */
-export function clearSupadataClient(): void {
-  supadataClient = null;
+export function clearSupadataClient(userId?: string): void {
+  if (userId) {
+    supadataClients.delete(userId);
+  } else {
+    supadataClients.clear();
+  }
 }
 
 /**
- * Checks if Supadata is configured and available
+ * Checks if Supadata is configured and available for a user
+ * @param userId - The user's ID
  * @returns Promise<boolean> - true if Supadata API key is configured
  */
-export async function isSupadataConfigured(): Promise<boolean> {
-  const apiKey = await getConfig("SUPADATA_API_KEY");
+export async function isSupadataConfigured(userId?: string): Promise<boolean> {
+  if (!userId) {
+    return false;
+  }
+  const apiKey = await getUserApiKey(userId, "supadata");
   return apiKey !== null && apiKey.length > 0;
 }

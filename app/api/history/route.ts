@@ -1,5 +1,6 @@
 import { prisma } from "@/lib/prisma";
-import { NextResponse } from "next/server";
+import { NextRequest, NextResponse } from "next/server";
+import { authenticateRequest } from "@/lib/apiAuth";
 
 function extractTitleFromContent(content: string): string {
   try {
@@ -18,7 +19,7 @@ function extractTitleFromContent(content: string): string {
     // Fallback: Use first non-empty line if no title marker found
     const firstNonEmptyLine = lines.find(line => line.trim().length > 0);
     if (firstNonEmptyLine) {
-      return firstNonEmptyLine.trim().replace(/^[🎯🎙️]\s*/, '');
+      return firstNonEmptyLine.trim().replace(/^(?:🎯|🎙️?)\s*/, '');
     }
   } catch (error) {
     console.error('Error extracting title:', error);
@@ -26,9 +27,18 @@ function extractTitleFromContent(content: string): string {
   return 'Untitled Summary';
 }
 
-export async function GET() {
+export async function GET(request: NextRequest) {
+  // Authenticate request
+  const auth = authenticateRequest(request);
+  if (!auth.success) {
+    return auth.response;
+  }
+
   try {
     const summaries = await prisma.summary.findMany({
+      where: {
+        userId: auth.userId,
+      },
       orderBy: {
         createdAt: 'desc'
       }

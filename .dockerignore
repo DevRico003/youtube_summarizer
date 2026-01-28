@@ -42,3 +42,5 @@ progress.txt
 prd.json.example
 tasks
 prd.json
+playwright-report
+test-results

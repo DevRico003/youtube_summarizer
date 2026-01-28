@@ -5,6 +5,7 @@ import { createContext, useContext, useState, useEffect, useCallback, type React
 interface User {
   id: string
   email: string
+  setupCompleted: boolean
 }
 
 interface AuthContextType {
@@ -13,6 +14,7 @@ interface AuthContextType {
   isLoading: boolean
   login: (token: string, user: User) => void
   logout: () => void
+  updateSetupCompleted: (completed: boolean) => void
 }
 
 const AuthContext = createContext<AuthContextType | undefined>(undefined)
@@ -56,12 +58,21 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     setUser(null)
   }, [])
 
+  const updateSetupCompleted = useCallback((completed: boolean) => {
+    if (user) {
+      const updatedUser = { ...user, setupCompleted: completed }
+      localStorage.setItem("user", JSON.stringify(updatedUser))
+      setUser(updatedUser)
+    }
+  }, [user])
+
   const value: AuthContextType = {
     user,
     isAuthenticated: !!user,
     isLoading,
     login,
     logout,
+    updateSetupCompleted,
   }
 
   return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>

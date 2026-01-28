@@ -71,22 +71,6 @@ test.describe("Summary Generation Flow", () => {
       }
     });
 
-    // Mock /api/preferences endpoint (for authenticated users)
-    await page.route("**/api/preferences", async (route) => {
-      await route.fulfill({
-        status: 200,
-        contentType: "application/json",
-        body: JSON.stringify({
-          success: true,
-          preferences: {
-            language: "en",
-            detailLevel: 3,
-            preferredModel: "glm-4.7",
-          },
-        }),
-      });
-    });
-
     // Mock /api/topics/edit endpoint (for topic saving)
     await page.route("**/api/topics/edit", async (route) => {
       const request = route.request();

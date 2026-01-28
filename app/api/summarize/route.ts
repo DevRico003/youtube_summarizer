@@ -1,11 +1,12 @@
-import { NextResponse } from "next/server";
+import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
 import { extractVideoId } from "@/lib/youtube";
-import { fetchTranscript, type TranscriptSegment } from "@/lib/transcript";
+import { fetchTranscript, TranscriptError } from "@/lib/transcript";
 import { chunkTranscript, type TranscriptChunk } from "@/lib/chunking";
 import { callWithFallback, getAvailableModels, type ModelId } from "@/lib/llmChain";
 import { extractTopics, type ExtractedTopic } from "@/lib/topicExtraction";
 import { logApiUsage } from "@/lib/usageLogger";
+import { authenticateRequest } from "@/lib/apiAuth";
 
 /**
  * Progress event types for streaming responses
@@ -36,18 +37,31 @@ interface SummaryResult {
     endMs: number;
     order: number;
   }>;
+  transcriptSegments: Array<{
+    id: string;
+    text: string;
+    offset: number;
+    duration: number;
+    order: number;
+  }>;
   modelUsed: ModelId;
   source: "cache" | "generated";
 }
 
 /**
- * GET handler - Returns available models
+ * GET handler - Returns available models for the user
  */
-export async function GET() {
+export async function GET(req: NextRequest) {
+  // Authenticate request
+  const auth = authenticateRequest(req);
+  if (!auth.success) {
+    return auth.response;
+  }
+
   try {
-    const models = await getAvailableModels();
+    const models = await getAvailableModels(auth.userId);
     return NextResponse.json({ models });
-  } catch (error) {
+  } catch {
     return NextResponse.json(
       { error: "Failed to get available models" },
       { status: 500 }
@@ -56,11 +70,31 @@ export async function GET() {
 }
 
 /**
+ * Supported output languages for summaries
+ */
+type OutputLanguage = "de" | "en" | "fr" | "es" | "it";
+
+const LANGUAGE_NAMES: Record<OutputLanguage, string> = {
+  de: "German",
+  en: "English",
+  fr: "French",
+  es: "Spanish",
+  it: "Italian",
+};
+
+/**
  * POST handler - Generate a video summary
- * Accepts: { url: string, detailLevel?: number }
+ * Accepts: { url: string, detailLevel?: number, language?: OutputLanguage }
  * Returns: Streaming progress events
  */
-export async function POST(req: Request) {
+export async function POST(req: NextRequest) {
+  // Authenticate request first (before starting stream)
+  const auth = authenticateRequest(req);
+  if (!auth.success) {
+    return auth.response;
+  }
+
+  const userId = auth.userId;
   const encoder = new TextEncoder();
   const stream = new TransformStream();
   const writer = stream.writable.getWriter();
@@ -73,7 +107,11 @@ export async function POST(req: Request) {
   (async () => {
     try {
       const body = await req.json();
-      const { url, detailLevel = 3 } = body;
+      const { url, detailLevel = 3, language = "en" } = body as {
+        url: string;
+        detailLevel?: number;
+        language?: OutputLanguage;
+      };
 
       if (!url) {
         await writeProgress({
@@ -98,11 +136,19 @@ export async function POST(req: Request) {
         return;
       }
 
-      // Check cache first
+      // Check cache first (per-user cache)
       const existingSummary = await prisma.summary.findUnique({
-        where: { videoId },
+        where: {
+          videoId_userId: {
+            videoId,
+            userId,
+          },
+        },
         include: {
           topics: {
+            orderBy: { order: "asc" },
+          },
+          transcriptSegments: {
             orderBy: { order: "asc" },
           },
         },
@@ -124,6 +170,13 @@ export async function POST(req: Request) {
               endMs: t.endMs,
               order: t.order,
             })),
+            transcriptSegments: existingSummary.transcriptSegments.map((s) => ({
+              id: s.id,
+              text: s.text,
+              offset: s.offset,
+              duration: s.duration,
+              order: s.order,
+            })),
             modelUsed: "glm-4.7", // Default for cached results
             source: "cache",
           },
@@ -140,11 +193,11 @@ export async function POST(req: Request) {
         message: "Fetching video transcript...",
       });
 
-      const transcriptResult = await fetchTranscript(url);
+      const transcriptResult = await fetchTranscript(url, userId);
       const { content: transcriptContent, hasTimestamps } = transcriptResult;
 
       // Log Supadata usage
-      await logApiUsage(null, "supadata", "transcript", hasTimestamps ? 1 : 2, 0);
+      await logApiUsage(userId, "supadata", "transcript", hasTimestamps ? 1 : 2, 0);
 
       // Convert transcript content to string for storage and LLM processing
       const transcriptText = Array.isArray(transcriptContent)
@@ -175,13 +228,16 @@ export async function POST(req: Request) {
         detail: `Processing ${chunks.length} content sections`,
       });
 
-      const { summary, modelUsed, tokensUsed } = await generateSummary(
+      const { summary, modelUsed, tokensUsed } = await generateChapterBasedSummary(
         chunks,
-        detailLevel
+        detailLevel,
+        language as OutputLanguage,
+        videoId,
+        userId
       );
 
       // Log LLM usage
-      await logApiUsage(null, modelUsed, "summary", 0, tokensUsed || 0);
+      await logApiUsage(userId, modelUsed, "summary", 0, tokensUsed || 0);
 
       // Extract title from summary or generate one
       const title = extractTitleFromSummary(summary) || `Video Summary - ${videoId}`;
@@ -199,13 +255,14 @@ export async function POST(req: Request) {
           const topicResult = await extractTopics(
             transcriptText,
             summary,
-            videoDurationMs
+            videoDurationMs,
+            { userId }
           );
           topics = topicResult.topics;
 
           // Log LLM usage for topic extraction
           await logApiUsage(
-            null,
+            userId,
             topicResult.modelUsed,
             "topic_extraction",
             0,
@@ -217,10 +274,21 @@ export async function POST(req: Request) {
         }
       }
 
+      // Save transcript segments if available
+      const transcriptSegmentsData = Array.isArray(transcriptContent)
+        ? transcriptContent.map((segment, index) => ({
+            text: segment.text,
+            offset: segment.offset,
+            duration: segment.duration,
+            order: index,
+          }))
+        : [];
+
       // Save to database
       const savedSummary = await prisma.summary.create({
         data: {
           videoId,
+          userId,
           title,
           content: summary,
           transcript: transcriptText,
@@ -233,9 +301,15 @@ export async function POST(req: Request) {
               order: topic.order,
             })),
           },
+          transcriptSegments: {
+            create: transcriptSegmentsData,
+          },
         },
         include: {
           topics: {
+            orderBy: { order: "asc" },
+          },
+          transcriptSegments: {
             orderBy: { order: "asc" },
           },
         },
@@ -257,6 +331,13 @@ export async function POST(req: Request) {
             endMs: t.endMs,
             order: t.order,
           })),
+          transcriptSegments: savedSummary.transcriptSegments.map((s) => ({
+            id: s.id,
+            text: s.text,
+            offset: s.offset,
+            duration: s.duration,
+            order: s.order,
+          })),
           modelUsed,
           source: "generated",
         },
@@ -265,10 +346,37 @@ export async function POST(req: Request) {
     } catch (error) {
       console.error("Summarize error:", error);
 
+      // Provide user-friendly error messages based on error type
+      let errorMessage = "Failed to generate summary";
+      let errorDetails: string | undefined;
+
+      if (error instanceof TranscriptError) {
+        switch (error.code) {
+          case "RATE_LIMIT_EXCEEDED":
+            errorMessage = "Rate limit exceeded. Please wait a moment and try again.";
+            break;
+          case "QUOTA_EXCEEDED":
+            errorMessage = "Monthly API quota exceeded. Please check your Supadata dashboard or wait for reset.";
+            break;
+          case "UNAUTHORIZED":
+            errorMessage = "Invalid API key. Please check your Supadata API key in settings.";
+            break;
+          case "SUPADATA_NOT_CONFIGURED":
+            errorMessage = "Supadata is not configured. Please add your API key in settings.";
+            break;
+          default:
+            errorMessage = error.message;
+        }
+        errorDetails = `Error code: ${error.code}`;
+      } else if (error instanceof Error) {
+        errorMessage = error.message;
+        errorDetails = error.stack;
+      }
+
       await writeProgress({
         type: "error",
-        error: error instanceof Error ? error.message : "Failed to generate summary",
-        details: error instanceof Error ? error.stack : undefined,
+        error: errorMessage,
+        details: errorDetails,
       });
     } finally {
       await writer.close().catch(() => {
@@ -287,109 +395,168 @@ export async function POST(req: Request) {
 }
 
 /**
- * Generate summary from transcript chunks using LLM fallback chain
+ * Detail level configuration for chapter-based summaries
  */
-async function generateSummary(
+interface DetailConfig {
+  description: string;
+  bulletPointsPerChapter: number;
+  showTransitions: boolean;
+  topChaptersOnly: boolean;
+  topChapterCount?: number;
+}
+
+const DETAIL_CONFIGS: Record<number, DetailConfig> = {
+  1: {
+    description: "very brief",
+    bulletPointsPerChapter: 1,
+    showTransitions: false,
+    topChaptersOnly: true,
+    topChapterCount: 3,
+  },
+  2: {
+    description: "concise",
+    bulletPointsPerChapter: 2,
+    showTransitions: false,
+    topChaptersOnly: true,
+    topChapterCount: 3,
+  },
+  3: {
+    description: "balanced",
+    bulletPointsPerChapter: 3,
+    showTransitions: false,
+    topChaptersOnly: false,
+  },
+  4: {
+    description: "detailed",
+    bulletPointsPerChapter: 4,
+    showTransitions: true,
+    topChaptersOnly: false,
+  },
+  5: {
+    description: "comprehensive",
+    bulletPointsPerChapter: 5,
+    showTransitions: true,
+    topChaptersOnly: false,
+  },
+};
+
+/**
+ * Generate chapter-based summary from transcript chunks
+ */
+async function generateChapterBasedSummary(
   chunks: TranscriptChunk[],
-  detailLevel: number
+  detailLevel: number,
+  language: OutputLanguage,
+  videoId: string,
+  userId: string
 ): Promise<{ summary: string; modelUsed: ModelId; tokensUsed?: number }> {
-  const detailDescriptions: Record<number, string> = {
-    1: "very brief (2-3 sentences)",
-    2: "concise (1 paragraph)",
-    3: "balanced (2-3 paragraphs)",
-    4: "detailed (4-5 paragraphs)",
-    5: "comprehensive (full breakdown with all details)",
-  };
+  const config = DETAIL_CONFIGS[detailLevel] || DETAIL_CONFIGS[3];
+  const languageName = LANGUAGE_NAMES[language] || "English";
 
-  const detailDescription = detailDescriptions[detailLevel] || detailDescriptions[3];
+  // Combine all chunks into a single transcript
+  const fullTranscript = chunks
+    .map((chunk) => {
+      if (chunk.startMs !== undefined && chunk.endMs !== undefined) {
+        return `[${formatTime(chunk.startMs)} - ${formatTime(chunk.endMs)}]\n${chunk.text}`;
+      }
+      return chunk.text;
+    })
+    .join("\n\n");
 
-  // For single chunk, generate directly
-  if (chunks.length === 1) {
-    const prompt = buildSummaryPrompt(chunks[0].text, detailDescription);
-    const result = await callWithFallback(prompt, {
-      systemPrompt: "You are a helpful assistant that creates clear, well-structured video summaries.",
-      maxTokens: 4096,
-      temperature: 0.7,
-    });
+  // Build the chapter-based summary prompt
+  const systemPrompt = `You are an expert video content analyst creating comprehensive, chapter-based summaries. Your summaries should allow someone to fully understand the video's content, context, and value without watching it.
 
-    return {
-      summary: result.response,
-      modelUsed: result.modelUsed,
-      tokensUsed: result.tokensUsed,
-    };
-  }
+Key principles:
+- Structure the summary around chapters/topics in the video
+- Create flowing narrative with highlighted key points
+- Show how chapters connect and build upon each other
+- Be factual and neutral, never critical
+- Use clear, engaging language`;
 
-  // For multiple chunks, summarize each and then combine
-  const chunkSummaries: string[] = [];
-  let totalTokens = 0;
-  let lastModelUsed: ModelId = "glm-4.7";
+  const userPrompt = buildChapterBasedPrompt(
+    fullTranscript,
+    videoId,
+    config,
+    languageName
+  );
 
-  for (let i = 0; i < chunks.length; i++) {
-    const chunk = chunks[i];
-    const timeInfo = chunk.startMs !== undefined && chunk.endMs !== undefined
-      ? ` (${formatTime(chunk.startMs)} - ${formatTime(chunk.endMs)})`
-      : "";
-
-    const prompt = `Summarize this section${timeInfo} of a video transcript. Be concise but capture the key points:
-
-${chunk.text}`;
-
-    const result = await callWithFallback(prompt, {
-      systemPrompt: "You are a helpful assistant that creates concise section summaries.",
-      maxTokens: 1024,
-      temperature: 0.7,
-    });
-
-    chunkSummaries.push(result.response);
-    totalTokens += result.tokensUsed || 0;
-    lastModelUsed = result.modelUsed;
-  }
-
-  // Combine chunk summaries into final summary
-  const combinedSummary = chunkSummaries.join("\n\n---\n\n");
-  const finalPrompt = buildSummaryPrompt(combinedSummary, detailDescription, true);
-
-  const finalResult = await callWithFallback(finalPrompt, {
-    systemPrompt: "You are a helpful assistant that creates clear, well-structured video summaries.",
-    maxTokens: 4096,
+  const result = await callWithFallback(userPrompt, {
+    systemPrompt,
+    maxTokens: 6144,
     temperature: 0.7,
+    userId,
   });
 
   return {
-    summary: finalResult.response,
-    modelUsed: finalResult.modelUsed,
-    tokensUsed: totalTokens + (finalResult.tokensUsed || 0),
+    summary: result.response,
+    modelUsed: result.modelUsed,
+    tokensUsed: result.tokensUsed,
   };
 }
 
 /**
- * Build the summary prompt based on detail level
+ * Build the chapter-based summary prompt
  */
-function buildSummaryPrompt(
-  text: string,
-  detailDescription: string,
-  isCombinedSections: boolean = false
+function buildChapterBasedPrompt(
+  transcript: string,
+  videoId: string,
+  config: DetailConfig,
+  languageName: string
 ): string {
-  const contextNote = isCombinedSections
-    ? "These are summaries of different sections of a video. Create a unified summary that flows naturally."
-    : "This is a video transcript.";
+  const bulletPointInstruction = config.bulletPointsPerChapter <= 2
+    ? `- Include only ${config.bulletPointsPerChapter} key bullet point(s) per chapter`
+    : `- Include ${config.bulletPointsPerChapter} detailed bullet points per chapter`;
 
-  return `${contextNote}
+  const transitionInstruction = config.showTransitions
+    ? `- Add a transition note (→ *Connection to next chapter: [explanation]*) showing how each chapter leads to the next`
+    : "";
 
-Create a ${detailDescription} summary with the following structure:
+  const chapterScopeInstruction = config.topChaptersOnly
+    ? `- Focus on the top ${config.topChapterCount} most important chapters in detail
+- Briefly mention other chapters in a single line each`
+    : `- Cover all identified chapters with appropriate depth`;
 
-**Title**: A descriptive title for the video
+  return `Analyze this video transcript and create a ${config.description} chapter-based summary.
 
-**Overview**: Brief introduction and context
+**IMPORTANT: Write the entire summary in ${languageName}.**
 
-**Key Points**: Main topics and arguments discussed
+**Transcript:**
+${transcript.slice(0, 25000)}${transcript.length > 25000 ? "\n\n[Transcript truncated...]" : ""}
 
-**Takeaways**: Practical insights and conclusions
+**Instructions:**
+1. First, identify the main chapters/topics discussed in the video based on natural topic transitions
+2. Then create a structured summary following the format below
 
-Content to summarize:
-${text}
+**Output Format:**
 
-Ensure the summary is comprehensive enough for someone who hasn't watched the video.`;
+**Title**: [Descriptive title for the video content]
+
+**Overview**: [2-3 sentences providing context - what this video covers and who it's for]
+
+**Recommended Chapters to Watch**:
+- [Chapter Name] - [Reason why this is worth watching in full] [(Timestamp)](https://youtube.com/watch?v=${videoId}&t=XXs)
+- [Another Chapter] - [Reason] [(Timestamp)](https://youtube.com/watch?v=${videoId}&t=XXs)
+
+---
+
+## Chapter 1: [Chapter Title] [(Timestamp)](https://youtube.com/watch?v=${videoId}&t=XXs)
+[2-3 sentence flowing summary of this chapter's content]
+${bulletPointInstruction}
+${transitionInstruction}
+
+## Chapter 2: [Chapter Title] [(Timestamp)](https://youtube.com/watch?v=${videoId}&t=XXs)
+[Continue with same structure...]
+
+---
+
+**Conclusion**: [Key takeaways and practical applications from the video]
+
+**Formatting Rules:**
+${chapterScopeInstruction}
+- Format timestamps as clickable links: [(MM:SS)](https://youtube.com/watch?v=${videoId}&t=XXs)
+- Use **bold** for key terms and concepts
+- Ensure chapter headings include the timestamp link
+- Be factual and neutral - summarize, don't critique`;
 }
 
 /**

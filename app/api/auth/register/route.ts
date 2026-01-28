@@ -64,6 +64,7 @@ export async function POST(request: NextRequest) {
       user: {
         id: user.id,
         email: user.email,
+        setupCompleted: user.setupCompleted,
       },
     });
   } catch (error) {

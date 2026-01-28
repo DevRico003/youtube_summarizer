@@ -41,6 +41,14 @@ jest.mock('@/lib/usageLogger', () => ({
   logApiUsage: jest.fn().mockResolvedValue(undefined),
 }));
 
+// Mock apiAuth
+jest.mock('@/lib/apiAuth', () => ({
+  authenticateRequest: jest.fn().mockReturnValue({
+    success: true,
+    userId: 'test-user-id',
+  }),
+}));
+
 // Import mocks after setting them up
 const mockedPrisma = prisma as jest.Mocked<typeof prisma>;
 import { fetchTranscript, TranscriptError } from '@/lib/transcript';
@@ -57,14 +65,25 @@ describe('Summarize API Integration Tests', () => {
     jest.clearAllMocks();
   });
 
-  // Helper to create NextRequest with JSON body
+  // Helper to create NextRequest with JSON body and auth header
   const createRequest = (body: object, url: string = 'http://localhost:3000/api/summarize'): NextRequest => {
     return new NextRequest(url, {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
+        'Authorization': 'Bearer test-token',
       },
       body: JSON.stringify(body),
+    });
+  };
+
+  // Helper to create GET NextRequest with auth header
+  const createGetRequest = (url: string = 'http://localhost:3000/api/summarize'): NextRequest => {
+    return new NextRequest(url, {
+      method: 'GET',
+      headers: {
+        'Authorization': 'Bearer test-token',
+      },
     });
   };
 
@@ -111,28 +130,31 @@ describe('Summarize API Integration Tests', () => {
   describe('GET /api/summarize', () => {
     it('should return available models', async () => {
       mockedGetAvailableModels.mockResolvedValue([
-        { id: 'glm-4.7', name: 'GLM-4.7 (Z.AI)', available: true },
-        { id: 'gemini', name: 'Gemini 1.5 Flash', available: true },
-        { id: 'groq', name: 'Llama 3.1 (Groq)', available: false },
-        { id: 'openai', name: 'GPT-4o Mini', available: false },
+        { id: 'glm-4.7', name: 'GLM-4.7', available: true, group: 'zai' },
+        { id: 'glm-4.7-flash', name: 'GLM-4.7 Flash', available: true, group: 'zai' },
+        { id: 'gemini-3-flash', name: 'Gemini 3 Flash', available: true, group: 'openrouter' },
+        { id: 'gemini', name: 'Gemini 1.5 Flash', available: false, group: 'legacy' },
+        { id: 'groq', name: 'Llama 3.1 (Groq)', available: false, group: 'legacy' },
+        { id: 'openai', name: 'GPT-4o Mini', available: false, group: 'legacy' },
       ]);
 
-      const response = await GET();
+      const response = await GET(createGetRequest());
       const data = await response.json();
 
       expect(response.status).toBe(200);
-      expect(data.models).toHaveLength(4);
+      expect(data.models).toHaveLength(6);
       expect(data.models[0]).toEqual({
         id: 'glm-4.7',
-        name: 'GLM-4.7 (Z.AI)',
+        name: 'GLM-4.7',
         available: true,
+        group: 'zai',
       });
     });
 
     it('should return 500 when getAvailableModels fails', async () => {
       mockedGetAvailableModels.mockRejectedValue(new Error('Failed to check models'));
 
-      const response = await GET();
+      const response = await GET(createGetRequest());
       const data = await response.json();
 
       expect(response.status).toBe(500);
@@ -209,6 +231,9 @@ describe('Summarize API Integration Tests', () => {
           { id: 'topic-1', title: 'Introduction', startMs: 0, endMs: 30000, order: 0, summaryId: 'summary-123', createdAt: new Date(), updatedAt: new Date() },
           { id: 'topic-2', title: 'Main Content', startMs: 30000, endMs: 120000, order: 1, summaryId: 'summary-123', createdAt: new Date(), updatedAt: new Date() },
         ],
+        transcriptSegments: [
+          { id: 'seg-1', text: 'Original transcript', offset: 0, duration: 30000, order: 0, summaryId: 'summary-123', createdAt: new Date() },
+        ],
       };
 
       (mockedPrisma.summary.findUnique as jest.Mock).mockResolvedValue(cachedSummary);
@@ -239,6 +264,7 @@ describe('Summarize API Integration Tests', () => {
         createdAt: new Date(),
         updatedAt: new Date(),
         topics: [],
+        transcriptSegments: [],
       };
 
       (mockedPrisma.summary.findUnique as jest.Mock).mockResolvedValue(cachedSummary);
@@ -351,6 +377,11 @@ describe('Summarize API Integration Tests', () => {
           { id: 'topic-1', title: 'Introduction', startMs: 0, endMs: 7500, order: 0, summaryId: 'new-summary-id', createdAt: new Date(), updatedAt: new Date() },
           { id: 'topic-2', title: 'Main Content', startMs: 7500, endMs: 15000, order: 1, summaryId: 'new-summary-id', createdAt: new Date(), updatedAt: new Date() },
         ],
+        transcriptSegments: [
+          { id: 'seg-1', text: 'Hello and welcome to this video.', offset: 0, duration: 5000, order: 0, summaryId: 'new-summary-id', createdAt: new Date() },
+          { id: 'seg-2', text: 'Today we will discuss important topics.', offset: 5000, duration: 5000, order: 1, summaryId: 'new-summary-id', createdAt: new Date() },
+          { id: 'seg-3', text: 'Let us begin with the introduction.', offset: 10000, duration: 5000, order: 2, summaryId: 'new-summary-id', createdAt: new Date() },
+        ],
       };
       (mockedPrisma.summary.create as jest.Mock).mockResolvedValue(createdSummary);
 
@@ -404,6 +435,7 @@ describe('Summarize API Integration Tests', () => {
         createdAt: new Date(),
         updatedAt: new Date(),
         topics: [],
+        transcriptSegments: [],
       };
       (mockedPrisma.summary.create as jest.Mock).mockResolvedValue(createdSummary);
 
@@ -462,6 +494,9 @@ describe('Summarize API Integration Tests', () => {
         createdAt: new Date(),
         updatedAt: new Date(),
         topics: [], // Empty due to extraction failure
+        transcriptSegments: [
+          { id: 'seg-1', text: 'Video content here.', offset: 0, duration: 10000, order: 0, summaryId: 'fallback-summary-id', createdAt: new Date() },
+        ],
       };
       (mockedPrisma.summary.create as jest.Mock).mockResolvedValue(createdSummary);
 
@@ -514,6 +549,9 @@ describe('Summarize API Integration Tests', () => {
         createdAt: new Date(),
         updatedAt: new Date(),
         topics: [],
+        transcriptSegments: [
+          { id: 'seg-1', text: 'Content.', offset: 0, duration: 5000, order: 0, summaryId: 'default-detail-summary', createdAt: new Date() },
+        ],
       };
       (mockedPrisma.summary.create as jest.Mock).mockResolvedValue(createdSummary);
 
@@ -651,6 +689,9 @@ describe('Summarize API Integration Tests', () => {
         createdAt: new Date(),
         updatedAt: new Date(),
         topics: [],
+        transcriptSegments: [
+          { id: 'seg-1', text: 'Content.', offset: 0, duration: 5000, order: 0, summaryId: 'test-id', createdAt: new Date() },
+        ],
       });
     });
 
@@ -737,6 +778,9 @@ describe('Summarize API Integration Tests', () => {
           createdAt: new Date(),
           updatedAt: new Date(),
           topics: [],
+          transcriptSegments: [
+            { id: 'seg-1', text: 'Content.', offset: 0, duration: 5000, order: 0, summaryId: 'title-test-id', createdAt: new Date() },
+          ],
         });
       });
 
@@ -767,6 +811,9 @@ describe('Summarize API Integration Tests', () => {
           createdAt: new Date(),
           updatedAt: new Date(),
           topics: [],
+          transcriptSegments: [
+            { id: 'seg-1', text: 'Content.', offset: 0, duration: 5000, order: 0, summaryId: 'fallback-title-id', createdAt: new Date() },
+          ],
         });
       });
 

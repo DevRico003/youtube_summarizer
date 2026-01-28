@@ -1,3 +1,4 @@
+import { SupadataError } from "@supadata/js";
 import { getSupadataClient } from "./supadata";
 
 /**
@@ -34,20 +35,54 @@ export class TranscriptError extends Error {
 }
 
 /**
+ * Retry helper with exponential backoff for rate-limited requests
+ * @param fn - The async function to retry
+ * @param options - Retry configuration
+ * @returns The result of the function
+ */
+async function withRetry<T>(
+  fn: () => Promise<T>,
+  options: { maxRetries?: number; baseDelayMs?: number } = {}
+): Promise<T> {
+  const { maxRetries = 3, baseDelayMs = 1000 } = options;
+
+  for (let attempt = 0; attempt <= maxRetries; attempt++) {
+    try {
+      return await fn();
+    } catch (error) {
+      // Only retry on rate limit errors
+      if (error instanceof SupadataError && error.error === "limit-exceeded") {
+        if (attempt < maxRetries) {
+          const delay = baseDelayMs * Math.pow(2, attempt);
+          console.log(`Rate limit hit, retrying in ${delay}ms (attempt ${attempt + 1}/${maxRetries})...`);
+          await new Promise((resolve) => setTimeout(resolve, delay));
+          continue;
+        }
+      }
+      throw error;
+    }
+  }
+  // This should never be reached, but TypeScript needs it
+  throw new Error("Max retries exceeded");
+}
+
+/**
  * Fetches transcript for a video URL using Supadata SDK
  *
  * Strategy:
  * 1. Try mode='native' first (1 credit) - returns existing transcripts with timestamps
- * 2. On failure, fallback to mode='auto' - tries native, then generates with AI
+ * 2. On failure, fallback to mode='generate' - forces AI transcript creation
  *
  * @param videoUrl - The YouTube video URL
+ * @param userId - The user's ID (required for API key lookup)
  * @returns Structured transcript with content, language info, and timestamp indicator
  * @throws TranscriptError if all methods fail or Supadata is not configured
  */
 export async function fetchTranscript(
-  videoUrl: string
+  videoUrl: string,
+  userId: string
 ): Promise<TranscriptResult> {
-  const client = await getSupadataClient();
+  const client = await getSupadataClient(userId);
 
   if (!client) {
     throw new TranscriptError(
@@ -57,54 +92,119 @@ export async function fetchTranscript(
   }
 
   // First, try native mode (cheaper - 1 credit, uses existing transcripts)
+  // Wrap in retry for rate-limit handling
   try {
-    const nativeResult = await client.transcript({
-      url: videoUrl,
-      mode: "native",
-      text: false, // Request timestamps
-    });
+    const nativeResult = await withRetry(
+      () =>
+        client.transcript({
+          url: videoUrl,
+          mode: "native",
+          text: false, // Request timestamps
+        }),
+      { maxRetries: 3, baseDelayMs: 1000 }
+    );
 
     // Check if we got a job ID (async processing) instead of transcript
     if ("jobId" in nativeResult) {
       // Poll for results - native mode shouldn't usually need this
       // but handle it just in case
-      const jobResult = await pollForTranscriptResult(client, nativeResult.jobId);
+      const jobResult = await pollForTranscriptResult(client, nativeResult.jobId, {
+        timeoutMs: 60_000,
+      });
       return formatTranscriptResult(jobResult, true);
     }
 
     // Direct result - native transcripts always have timestamps
     return formatTranscriptResult(nativeResult, true);
   } catch (nativeError) {
-    // Native mode failed (no existing transcript available)
-    // Fall back to auto mode
-    console.log(
-      "Native transcript not available, falling back to auto mode:",
+    // Check for specific SupadataError types
+    if (nativeError instanceof SupadataError) {
+      if (nativeError.error === "limit-exceeded") {
+        // Rate limit persisted after retries - throw specific error
+        throw new TranscriptError(
+          `API rate limit exceeded. Please wait a moment and try again. ${nativeError.details || ""}`.trim(),
+          "RATE_LIMIT_EXCEEDED"
+        );
+      }
+      // Other Supadata errors that prevent fallback
+      if (nativeError.error === "unauthorized") {
+        throw new TranscriptError(
+          "Invalid Supadata API key. Please check your settings.",
+          "UNAUTHORIZED"
+        );
+      }
+      if (nativeError.error === "upgrade-required") {
+        throw new TranscriptError(
+          "Monthly API quota exceeded. Please upgrade your Supadata plan or wait for reset.",
+          "QUOTA_EXCEEDED"
+        );
+      }
+    }
+
+    // Native mode failed (no existing transcript available) - log and continue to fallback
+    console.warn(
+      "Native transcript failed, falling back to generate mode:",
       nativeError instanceof Error ? nativeError.message : "Unknown error"
     );
   }
 
-  // Fallback to auto mode (tries native, then generates with AI)
+  // Fallback to generate mode (forces AI transcript creation)
+  // Also wrap in retry for rate-limit handling
   try {
-    const autoResult = await client.transcript({
-      url: videoUrl,
-      mode: "auto",
-      text: false, // Request timestamps
-    });
+    const generateResult = await withRetry(
+      () =>
+        client.transcript({
+          url: videoUrl,
+          mode: "generate",
+          text: false, // Request timestamps
+        }),
+      { maxRetries: 3, baseDelayMs: 1000 }
+    );
 
     // Check if we got a job ID (async processing for AI generation)
-    if ("jobId" in autoResult) {
-      const jobResult = await pollForTranscriptResult(client, autoResult.jobId);
+    if ("jobId" in generateResult) {
+      const jobResult = await pollForTranscriptResult(client, generateResult.jobId, {
+        timeoutMs: 180_000,
+      });
       // AI-generated transcripts may or may not have reliable timestamps
       const hasTimestamps = isTimestampedContent(jobResult.content);
       return formatTranscriptResult(jobResult, hasTimestamps);
     }
 
     // Direct result
-    const hasTimestamps = isTimestampedContent(autoResult.content);
-    return formatTranscriptResult(autoResult, hasTimestamps);
-  } catch (autoError) {
+    const hasTimestamps = isTimestampedContent(generateResult.content);
+    return formatTranscriptResult(generateResult, hasTimestamps);
+  } catch (generateError) {
+    // Handle specific SupadataError types
+    if (generateError instanceof SupadataError) {
+      if (generateError.error === "limit-exceeded") {
+        throw new TranscriptError(
+          `API rate limit exceeded. Please wait a moment and try again. ${generateError.details || ""}`.trim(),
+          "RATE_LIMIT_EXCEEDED"
+        );
+      }
+      if (generateError.error === "unauthorized") {
+        throw new TranscriptError(
+          "Invalid Supadata API key. Please check your settings.",
+          "UNAUTHORIZED"
+        );
+      }
+      if (generateError.error === "upgrade-required") {
+        throw new TranscriptError(
+          "Monthly API quota exceeded. Please upgrade your Supadata plan or wait for reset.",
+          "QUOTA_EXCEEDED"
+        );
+      }
+      // Other Supadata errors
+      throw new TranscriptError(
+        `Supadata error: ${generateError.message}`,
+        "SUPADATA_ERROR"
+      );
+    }
+
+    // Generic error
     const errorMessage =
-      autoError instanceof Error ? autoError.message : "Unknown error";
+      generateError instanceof Error ? generateError.message : "Unknown error";
     throw new TranscriptError(
       `Failed to fetch transcript: ${errorMessage}`,
       "TRANSCRIPT_FETCH_FAILED"
@@ -120,7 +220,8 @@ export async function fetchTranscript(
  */
 async function pollForTranscriptResult(
   client: Awaited<ReturnType<typeof getSupadataClient>>,
-  jobId: string
+  jobId: string,
+  options: { timeoutMs: number; pollIntervalMs?: number }
 ): Promise<{ content: TranscriptSegment[] | string; lang: string; availableLangs: string[] }> {
   if (!client) {
     throw new TranscriptError(
@@ -129,8 +230,8 @@ async function pollForTranscriptResult(
     );
   }
 
-  const maxAttempts = 30; // 30 attempts * 2 seconds = 60 seconds max
-  const pollInterval = 2000; // 2 seconds
+  const pollInterval = options.pollIntervalMs ?? 2000; // 2 seconds
+  const maxAttempts = Math.ceil(options.timeoutMs / pollInterval);
 
   for (let attempt = 0; attempt < maxAttempts; attempt++) {
     const jobResult = await client.transcript.getJobStatus(jobId);
@@ -162,8 +263,9 @@ async function pollForTranscriptResult(
     await new Promise((resolve) => setTimeout(resolve, pollInterval));
   }
 
+  const timeoutSeconds = Math.round(options.timeoutMs / 1000);
   throw new TranscriptError(
-    "Transcript job timed out after 60 seconds",
+    `Transcript job timed out after ${timeoutSeconds} seconds`,
     "JOB_TIMEOUT"
   );
 }

@@ -1,13 +1,26 @@
 import OpenAI from "openai";
-import { GoogleGenerativeAI } from "@google/generative-ai";
-import Groq from "groq-sdk";
-import { getConfig } from "./appConfig";
-import { getGlmClient, getGlmModelName, isGlmConfigured } from "./glm";
+import {
+  getGlmCodingClient,
+  getGlmPaasClient,
+  isGlmConfigured,
+} from "./glm";
 
 /**
  * Model identifiers for the fallback chain
  */
-export type ModelId = "glm-4.7" | "gemini" | "groq" | "openai";
+export type ModelId = "glm-4.7";
+
+/**
+ * Provider group type
+ */
+export type ProviderGroup = "zai";
+
+/**
+ * Model to provider group mapping
+ */
+const MODEL_GROUPS: Record<ModelId, ProviderGroup> = {
+  "glm-4.7": "zai",
+};
 
 /**
  * Model information type
@@ -16,6 +29,7 @@ export interface ModelInfo {
   id: ModelId;
   name: string;
   available: boolean;
+  group: ProviderGroup;
 }
 
 /**
@@ -35,56 +49,57 @@ export interface LlmCallOptions {
   temperature?: number;
   systemPrompt?: string;
   preferredModel?: ModelId;
+  userId?: string;
 }
 
 /**
- * Gets all models and their availability status.
+ * Gets all models and their availability status for a specific user.
  *
+ * @param userId - The user's ID to check their configured API keys
  * @returns Promise<ModelInfo[]> - Array of model info with availability
  */
-export async function getAvailableModels(): Promise<ModelInfo[]> {
-  const [glmAvailable, geminiAvailable, groqAvailable, openaiAvailable] =
-    await Promise.all([
-      isGlmConfigured(),
-      isGeminiConfigured(),
-      isGroqConfigured(),
-      isOpenAIConfigured(),
-    ]);
+export async function getAvailableModels(userId: string): Promise<ModelInfo[]> {
+  const glmAvailable = await isGlmConfigured(userId);
 
   return [
-    { id: "glm-4.7", name: "GLM-4.7 (Z.AI)", available: glmAvailable },
-    { id: "gemini", name: "Gemini 1.5 Flash", available: geminiAvailable },
-    { id: "groq", name: "Llama 3.1 (Groq)", available: groqAvailable },
-    { id: "openai", name: "GPT-4o Mini", available: openaiAvailable },
+    { id: "glm-4.7", name: "GLM-4.7", available: glmAvailable, group: "zai" as ProviderGroup },
   ];
 }
 
 /**
  * Calls an LLM with automatic fallback to other models if primary fails.
- * Order: GLM-4.7 → Gemini → Groq → OpenAI
  *
  * @param prompt - The user prompt to send
- * @param options - Optional configuration for the call
+ * @param options - Optional configuration for the call (must include userId)
  * @returns Promise<LlmResponse> - The response and model used
- * @throws Error if all models fail
+ * @throws Error if all models fail or userId is not provided
  */
 export async function callWithFallback(
   prompt: string,
   options: LlmCallOptions = {}
 ): Promise<LlmResponse> {
-  const { maxTokens = 4096, temperature = 0.7, systemPrompt } = options;
+  const { maxTokens = 4096, temperature = 0.7, systemPrompt, userId } = options;
+
+  if (!userId) {
+    throw new Error("userId is required for LLM calls");
+  }
 
   const errors: { model: ModelId; error: string }[] = [];
 
-  // Build the model order (preferred first, then default order)
-  const modelOrder: ModelId[] = options.preferredModel
-    ? [
-        options.preferredModel,
-        ...["glm-4.7", "gemini", "groq", "openai"].filter(
-          (m) => m !== options.preferredModel
-        ) as ModelId[],
-      ]
-    : ["glm-4.7", "gemini", "groq", "openai"];
+  // Build the model order - only GLM-4.7 available
+  const preferredModel = options.preferredModel || "glm-4.7";
+  const group = MODEL_GROUPS[preferredModel];
+
+  // Get all models in the same group for fallback
+  const groupModels = Object.entries(MODEL_GROUPS)
+    .filter(([, g]) => g === group)
+    .map(([id]) => id as ModelId);
+
+  // Build order: preferred first, then other models in same group
+  const modelOrder: ModelId[] = [
+    preferredModel,
+    ...groupModels.filter((m) => m !== preferredModel),
+  ];
 
   // Try each model in order
   for (const modelId of modelOrder) {
@@ -93,6 +108,7 @@ export async function callWithFallback(
         maxTokens,
         temperature,
         systemPrompt,
+        userId,
       });
       if (result) {
         return result;
@@ -120,17 +136,11 @@ export async function callWithFallback(
 async function callModel(
   modelId: ModelId,
   prompt: string,
-  options: { maxTokens: number; temperature: number; systemPrompt?: string }
+  options: { maxTokens: number; temperature: number; systemPrompt?: string; userId: string }
 ): Promise<LlmResponse | null> {
   switch (modelId) {
     case "glm-4.7":
       return callGlm(prompt, options);
-    case "gemini":
-      return callGemini(prompt, options);
-    case "groq":
-      return callGroq(prompt, options);
-    case "openai":
-      return callOpenAI(prompt, options);
     default:
       return null;
   }
@@ -138,13 +148,46 @@ async function callModel(
 
 /**
  * Call GLM-4.7
+ * Tries Coding Subscription first (Anthropic format), falls back to PAAS (OpenAI format)
  */
 async function callGlm(
   prompt: string,
-  options: { maxTokens: number; temperature: number; systemPrompt?: string }
+  options: { maxTokens: number; temperature: number; systemPrompt?: string; userId: string }
 ): Promise<LlmResponse | null> {
-  const client = await getGlmClient();
-  if (!client) return null;
+  const apiModelName = "glm-4.7";
+
+  // Try Coding Subscription first (uses Anthropic format)
+  try {
+    const codingClient = await getGlmCodingClient(options.userId);
+    if (codingClient) {
+      const response = await codingClient.messages.create({
+        model: apiModelName,
+        max_tokens: options.maxTokens,
+        system: options.systemPrompt,
+        messages: [{ role: "user", content: prompt }],
+      });
+
+      const textBlock = response.content.find((block) => block.type === "text");
+      if (textBlock && textBlock.type === "text") {
+        return {
+          response: textBlock.text,
+          modelUsed: "glm-4.7",
+          tokensUsed:
+            response.usage.input_tokens + response.usage.output_tokens,
+        };
+      }
+    }
+  } catch (error) {
+    // Log and fall through to PAAS
+    console.warn(
+      "GLM Coding Subscription failed, trying PAAS:",
+      error instanceof Error ? error.message : "Unknown error"
+    );
+  }
+
+  // Fallback to PAAS API (uses OpenAI format)
+  const paasClient = await getGlmPaasClient(options.userId);
+  if (!paasClient) return null;
 
   const messages: OpenAI.Chat.Completions.ChatCompletionMessageParam[] = [];
   if (options.systemPrompt) {
@@ -152,8 +195,8 @@ async function callGlm(
   }
   messages.push({ role: "user", content: prompt });
 
-  const completion = await client.chat.completions.create({
-    model: getGlmModelName(),
+  const completion = await paasClient.chat.completions.create({
+    model: apiModelName,
     messages,
     max_tokens: options.maxTokens,
     temperature: options.temperature,
@@ -169,147 +212,4 @@ async function callGlm(
     modelUsed: "glm-4.7",
     tokensUsed: completion.usage?.total_tokens,
   };
-}
-
-/**
- * Call Gemini
- */
-async function callGemini(
-  prompt: string,
-  options: { maxTokens: number; temperature: number; systemPrompt?: string }
-): Promise<LlmResponse | null> {
-  const apiKey = await getConfig("GEMINI_API_KEY");
-  if (!apiKey) return null;
-
-  const genAI = new GoogleGenerativeAI(apiKey);
-
-  // Use type assertion to pass generationConfig which is supported by BaseParams
-  const model = genAI.getGenerativeModel({
-    model: "gemini-1.5-flash",
-    generationConfig: {
-      maxOutputTokens: options.maxTokens,
-      temperature: options.temperature,
-    },
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  } as any);
-
-  const fullPrompt = options.systemPrompt
-    ? `${options.systemPrompt}\n\n${prompt}`
-    : prompt;
-
-  const result = await model.generateContent(fullPrompt);
-  const response = result.response;
-  const content = response.text();
-
-  if (!content) {
-    throw new Error("No content in Gemini response");
-  }
-
-  // Cast to access usageMetadata which exists on GenerateContentResponse
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  const usageMetadata = (response as any).usageMetadata;
-
-  return {
-    response: content,
-    modelUsed: "gemini",
-    tokensUsed: usageMetadata?.totalTokenCount,
-  };
-}
-
-/**
- * Call Groq
- */
-async function callGroq(
-  prompt: string,
-  options: { maxTokens: number; temperature: number; systemPrompt?: string }
-): Promise<LlmResponse | null> {
-  const apiKey = await getConfig("GROQ_API_KEY");
-  if (!apiKey) return null;
-
-  const groq = new Groq({ apiKey });
-
-  const messages: Groq.Chat.Completions.ChatCompletionMessageParam[] = [];
-  if (options.systemPrompt) {
-    messages.push({ role: "system", content: options.systemPrompt });
-  }
-  messages.push({ role: "user", content: prompt });
-
-  const completion = await groq.chat.completions.create({
-    model: "llama-3.1-8b-instant",
-    messages,
-    max_tokens: options.maxTokens,
-    temperature: options.temperature,
-  });
-
-  const content = completion.choices[0]?.message?.content;
-  if (!content) {
-    throw new Error("No content in Groq response");
-  }
-
-  return {
-    response: content,
-    modelUsed: "groq",
-    tokensUsed: completion.usage?.total_tokens,
-  };
-}
-
-/**
- * Call OpenAI
- */
-async function callOpenAI(
-  prompt: string,
-  options: { maxTokens: number; temperature: number; systemPrompt?: string }
-): Promise<LlmResponse | null> {
-  const apiKey = await getConfig("OPENAI_API_KEY");
-  if (!apiKey) return null;
-
-  const openai = new OpenAI({ apiKey });
-
-  const messages: OpenAI.Chat.Completions.ChatCompletionMessageParam[] = [];
-  if (options.systemPrompt) {
-    messages.push({ role: "system", content: options.systemPrompt });
-  }
-  messages.push({ role: "user", content: prompt });
-
-  const completion = await openai.chat.completions.create({
-    model: "gpt-4o-mini",
-    messages,
-    max_tokens: options.maxTokens,
-    temperature: options.temperature,
-  });
-
-  const content = completion.choices[0]?.message?.content;
-  if (!content) {
-    throw new Error("No content in OpenAI response");
-  }
-
-  return {
-    response: content,
-    modelUsed: "openai",
-    tokensUsed: completion.usage?.total_tokens,
-  };
-}
-
-/**
- * Check if Gemini is configured
- */
-async function isGeminiConfigured(): Promise<boolean> {
-  const apiKey = await getConfig("GEMINI_API_KEY");
-  return apiKey !== null && apiKey.length > 0;
-}
-
-/**
- * Check if Groq is configured
- */
-async function isGroqConfigured(): Promise<boolean> {
-  const apiKey = await getConfig("GROQ_API_KEY");
-  return apiKey !== null && apiKey.length > 0;
-}
-
-/**
- * Check if OpenAI is configured
- */
-async function isOpenAIConfigured(): Promise<boolean> {
-  const apiKey = await getConfig("OPENAI_API_KEY");
-  return apiKey !== null && apiKey.length > 0;
 }

@@ -1,28 +1,30 @@
 generator client {
   provider = "prisma-client-js"
+  output   = "../node_modules/.prisma/client"
 }
 
 datasource db {
   provider = "sqlite"
-  url      = env("DATABASE_URL")
 }
 
 model User {
-  id           String   @id @default(cuid())
-  email        String   @unique
-  passwordHash String
-  createdAt    DateTime @default(now())
-  updatedAt    DateTime @updatedAt
+  id             String   @id @default(cuid())
+  email          String   @unique
+  passwordHash   String
+  setupCompleted Boolean  @default(false)
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @updatedAt
 
-  topicEdits      UserTopicEdit[]
-  preferences     UserPreference?
-  usageLogs       ApiUsageLog[]
-  promptTemplates PromptTemplate[]
+  topicEdits UserTopicEdit[]
+  usageLogs  ApiUsageLog[]
+  summaries  Summary[]
+  apiKeys    UserApiKey[]
 }
 
 model Summary {
   id            String   @id @default(cuid())
-  videoId       String   @unique
+  videoId       String
+  userId        String
   title         String
   content       String
   transcript    String
@@ -30,8 +32,13 @@ model Summary {
   createdAt     DateTime @default(now())
   updatedAt     DateTime @updatedAt
 
-  topics     Topic[]
-  topicEdits UserTopicEdit[]
+  user               User                @relation(fields: [userId], references: [id], onDelete: Cascade)
+  topics             Topic[]
+  topicEdits         UserTopicEdit[]
+  transcriptSegments TranscriptSegment[]
+
+  @@unique([videoId, userId])
+  @@index([userId])
 }
 
 model Topic {
@@ -64,18 +71,6 @@ model UserTopicEdit {
   @@unique([userId, topicId])
 }
 
-model UserPreference {
-  id             String  @id @default(cuid())
-  userId         String  @unique
-  language       String  @default("en")
-  detailLevel    Int     @default(3)
-  preferredModel String  @default("glm-4.7")
-  thinkingMode   Boolean @default(false)
-  customPrompt   String?
-
-  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
-}
-
 model ApiUsageLog {
   id          String   @id @default(cuid())
   userId      String?
@@ -94,16 +89,30 @@ model AppConfig {
   encryptedValue String
 }
 
-model PromptTemplate {
-  id        String   @id @default(cuid())
-  userId    String
-  name      String
-  content   String
-  isDefault Boolean  @default(false)
-  createdAt DateTime @default(now())
-  updatedAt DateTime @updatedAt
+model UserApiKey {
+  id             String   @id @default(cuid())
+  userId         String
+  service        String   // "supadata", "zai", "openrouter", "gemini", "groq", "openai"
+  encryptedValue String
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @updatedAt
 
   user User @relation(fields: [userId], references: [id], onDelete: Cascade)
 
-  @@unique([userId, name])
+  @@unique([userId, service])
+  @@index([userId])
+}
+
+model TranscriptSegment {
+  id        String   @id @default(cuid())
+  summaryId String
+  text      String
+  offset    Int      // Start time in milliseconds
+  duration  Int      // Duration in milliseconds
+  order     Int      // Display order
+  createdAt DateTime @default(now())
+
+  summary Summary @relation(fields: [summaryId], references: [id], onDelete: Cascade)
+
+  @@index([summaryId, order])
 }
