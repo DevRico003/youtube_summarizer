@@ -1,38 +1,95 @@
-# Use Node.js LTS (Long Term Support) version
-FROM node:20-alpine
+# syntax=docker/dockerfile:1
 
-# Set working directory
+# ====================================
+# Stage 1: Dependencies
+# ====================================
+FROM node:20-alpine AS deps
 WORKDIR /app
 
-# Install system dependencies
-RUN apk add --no-cache \
-    python3 \
-    make \
-    g++ \
-    sqlite
+# Install dependencies needed for native modules (bcrypt)
+RUN apk add --no-cache libc6-compat python3 make g++
 
-# Copy prisma schema and package files first (for better caching)
+# Copy package files and prisma schema
+COPY package.json package-lock.json ./
 COPY prisma ./prisma/
-COPY package*.json ./
 
-# Install dependencies
+# Install all dependencies
 RUN npm ci
 
-# generate client
-RUN npx prisma generate
+# ====================================
+# Stage 2: Builder
+# ====================================
+FROM node:20-alpine AS builder
+WORKDIR /app
 
-# Copy the rest of the application
+# Install build dependencies for native modules
+RUN apk add --no-cache libc6-compat python3 make g++
+
+# Copy dependencies from deps stage
+COPY --from=deps /app/node_modules ./node_modules
 COPY . .
 
-# Build the Next.js application
+# Generate Prisma client
+RUN npx prisma generate
+
+# Build Next.js application
+ENV NEXT_TELEMETRY_DISABLED=1
+# Provide a dummy DATABASE_URL for build time - the real URL is set at runtime
+ENV DATABASE_URL="file:./build-placeholder.db"
 RUN npm run build
 
-# Expose the port the app runs on
+# ====================================
+# Stage 3: Production
+# ====================================
+FROM node:20-alpine AS runner
+WORKDIR /app
+
+# Set production environment
+ENV NODE_ENV=production
+ENV NEXT_TELEMETRY_DISABLED=1
+
+# Install sqlite for database operations and npm for prisma CLI
+RUN apk add --no-cache libc6-compat sqlite
+
+# Install Prisma CLI globally for database migrations
+RUN npm install -g prisma@7.3.0
+
+# Create non-root user for security
+RUN addgroup --system --gid 1001 nodejs
+RUN adduser --system --uid 1001 nextjs
+
+# Copy public assets
+COPY --from=builder /app/public ./public
+
+# Copy standalone build output
+COPY --from=builder --chown=nextjs:nodejs /app/.next/standalone ./
+COPY --from=builder --chown=nextjs:nodejs /app/.next/static ./.next/static
+
+# Copy Prisma files for database operations
+COPY --from=builder /app/prisma ./prisma
+COPY --from=builder /app/prisma.config.ts ./prisma.config.ts
+COPY --from=builder /app/node_modules/.prisma ./node_modules/.prisma
+COPY --from=builder /app/node_modules/@prisma ./node_modules/@prisma
+COPY --from=builder /app/node_modules/better-sqlite3 ./node_modules/better-sqlite3
+
+# Create data directory for SQLite database persistence
+RUN mkdir -p /app/data
+
+# Copy entrypoint script
+COPY docker-entrypoint.sh ./
+RUN chmod +x docker-entrypoint.sh
+
+# Set ownership
+RUN chown -R nextjs:nodejs /app
+
+USER nextjs
+
+# Expose port 3000
 EXPOSE 3000
 
-# Create volume for SQLite database
-COPY prisma/schema.prisma /app/prisma/schema.prisma
-VOLUME ["/app/prisma"]
+# Set host to listen on all interfaces
+ENV HOSTNAME="0.0.0.0"
+ENV PORT=3000
 
-# Start the application with direct command
-CMD ["/bin/sh", "-c", "npx prisma db push --schema=/app/prisma/schema.prisma && npm start"]
+# Start the application
+CMD ["./docker-entrypoint.sh"]

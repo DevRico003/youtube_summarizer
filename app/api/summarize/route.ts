@@ -1,700 +1,591 @@
-import { NextResponse } from "next/server";
-import { YoutubeTranscript } from 'youtube-transcript';
+import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
-import { extractVideoId, createSummaryPrompt } from '@/lib/youtube';
-import { GoogleGenerativeAI } from "@google/generative-ai";
-import { Groq } from "groq-sdk";
-import OpenAI from 'openai';
-import ytdl from 'ytdl-core';
-import fs from 'fs';
-import path from 'path';
-import { exec } from 'child_process';
-import { promisify } from 'util';
-import FormData from 'form-data';
-import fetch from 'node-fetch';
+import { extractVideoId } from "@/lib/youtube";
+import { fetchTranscript, TranscriptError } from "@/lib/transcript";
+import { chunkTranscript, type TranscriptChunk } from "@/lib/chunking";
+import { callWithFallback, getAvailableModels, type ModelId } from "@/lib/llmChain";
+import { extractTopics, type ExtractedTopic } from "@/lib/topicExtraction";
+import { logApiUsage } from "@/lib/usageLogger";
+import { authenticateRequest } from "@/lib/apiAuth";
 
-const execAsync = promisify(exec);
+/**
+ * Progress event types for streaming responses
+ */
+type ProgressEvent =
+  | { type: "progress"; stage: Stage; message: string; detail?: string }
+  | { type: "complete"; summary: SummaryResult; status: "completed" }
+  | { type: "error"; error: string; details?: string };
 
-// Add at the top of the file after imports
-const logger = {
-  info: (message: string, data?: any) => {
-    console.log(`[INFO] ${message}`, data ? JSON.stringify(data, null, 2) : '');
-  },
-  error: (message: string, error: any) => {
-    console.error(`[ERROR] ${message}`, {
-      message: error?.message,
-      status: error?.status,
-      stack: error?.stack,
-      cause: error?.cause,
-      details: error?.details,
-      response: error?.response,
-    });
-  },
-  debug: (message: string, data?: any) => {
-    console.debug(`[DEBUG] ${message}`, data ? JSON.stringify(data, null, 2) : '');
+/**
+ * Summary stages for progress tracking
+ */
+type Stage = "fetching_transcript" | "analyzing_topics" | "generating_summary" | "building_timeline";
+
+/**
+ * Summary result structure
+ */
+interface SummaryResult {
+  id: string;
+  videoId: string;
+  title: string;
+  content: string;
+  hasTimestamps: boolean;
+  topics: Array<{
+    id: string;
+    title: string;
+    startMs: number;
+    endMs: number;
+    order: number;
+  }>;
+  transcriptSegments: Array<{
+    id: string;
+    text: string;
+    offset: number;
+    duration: number;
+    order: number;
+  }>;
+  modelUsed: ModelId;
+  source: "cache" | "generated";
+}
+
+/**
+ * GET handler - Returns available models for the user
+ */
+export async function GET(req: NextRequest) {
+  // Authenticate request
+  const auth = authenticateRequest(req);
+  if (!auth.success) {
+    return auth.response;
   }
-};
-
-// Initialize API clients only when needed
-function getGeminiClient() {
-  const apiKey = process.env.GEMINI_API_KEY;
-  if (!apiKey) return null;
-  const genAI = new GoogleGenerativeAI(apiKey);
-  return genAI;
-}
-
-function getGroqClient() {
-  const apiKey = process.env.GROQ_API_KEY;
-  if (!apiKey) return null;
-  return new Groq({ apiKey });
-}
-
-function getOpenAIClient() {
-  const apiKey = process.env.OPENAI_API_KEY;
-  if (!apiKey) return null;
-  return new OpenAI({ apiKey });
-}
-
-// Helper function to get user-friendly model names
-const MODEL_NAMES = {
-  gemini: "Google Gemini",
-  groq: "Groq",
-  gpt4: "GPT-4"
-};
-
-// Helper function to check API key availability
-function checkApiKeyAvailability() {
-  return {
-    gemini: !!process.env.GEMINI_API_KEY,
-    groq: !!process.env.GROQ_API_KEY,
-    gpt4: !!process.env.OPENAI_API_KEY
-  };
-}
-
-// Helper function to clean model outputs
-function cleanModelOutput(text: string): string {
-  return text
-    // English prefixes
-    .replace(/^(Okay|Here'?s?( is)?|Let me|I will|I'll|I can|I would|I am going to|Allow me to|Sure|Of course|Certainly|Alright)[^]*?,\s*/i, '')
-    .replace(/^(Here'?s?( is)?|I'?ll?|Let me|I will|I can|I would|I am going to|Allow me to|Sure|Of course|Certainly)[^]*?(summary|translate|breakdown|analysis).*?:\s*/i, '')
-    .replace(/^(Based on|According to).*?,\s*/i, '')
-    .replace(/^I understand.*?[.!]\s*/i, '')
-    .replace(/^(Now|First|Let's),?\s*/i, '')
-    .replace(/^(Here are|The following is|This is|Below is).*?:\s*/i, '')
-    .replace(/^(I'll provide|Let me break|I'll break|I'll help|I've structured).*?:\s*/i, '')
-    .replace(/^(As requested|Following your|In response to).*?:\s*/i, '')
-    // German prefixes
-    .replace(/^(Okay|Hier( ist)?|Lass mich|Ich werde|Ich kann|Ich würde|Ich möchte|Erlauben Sie mir|Sicher|Natürlich|Gewiss|In Ordnung)[^]*?,\s*/i, '')
-    .replace(/^(Hier( ist)?|Ich werde|Lass mich|Ich kann|Ich würde|Ich möchte)[^]*?(Zusammenfassung|Übersetzung|Analyse).*?:\s*/i, '')
-    .replace(/^(Basierend auf|Laut|Gemäß).*?,\s*/i, '')
-    .replace(/^Ich verstehe.*?[.!]\s*/i, '')
-    .replace(/^(Jetzt|Zunächst|Lass uns),?\s*/i, '')
-    .replace(/^(Hier sind|Folgendes|Dies ist|Im Folgenden).*?:\s*/i, '')
-    .replace(/^(Ich werde|Lass mich|Ich helfe|Ich habe strukturiert).*?:\s*/i, '')
-    .replace(/^(Wie gewünscht|Entsprechend Ihrer|Als Antwort auf).*?:\s*/i, '')
-    // Remove meta instructions while preserving markdown
-    .replace(/^[^:\n🎯🎙️#*\-•]+:\s*/gm, '')  // Remove prefixes but keep markdown and emojis
-    .replace(/^(?![#*\-•🎯️])[\s\d]+\.\s*/gm, '') // Remove numbered lists but keep markdown lists
-    .trim();
-}
-
-// AI Model configuration
-const AI_MODELS = {
-  gemini: {
-    name: "gemini",
-    async generateContent(prompt: string) {
-      const genAI = getGeminiClient();
-      if (!genAI) {
-        throw new Error(`${MODEL_NAMES.gemini} API key is not configured. Please add your API key in the settings or choose a different model.`);
-      }
-      const model = genAI.getGenerativeModel({ model: "gemini-2.0-flash-001" });
-      const result = await model.generateContent(prompt);
-      const response = await result.response;
-      return cleanModelOutput(response.text());
-    }
-  },
-  groq: {
-    name: "groq",
-    model: "llama-3.3-70b-versatile",
-    async generateContent(prompt: string) {
-      const groq = getGroqClient();
-      if (!groq) {
-        throw new Error(`${MODEL_NAMES.groq} API key is not configured. Please add your API key in the settings or choose a different model.`);
-      }
-      const completion = await groq.chat.completions.create({
-        messages: [
-          {
-            role: "system",
-            content: "You are a direct and concise summarizer. Respond only with the summary, without any prefixes or meta-commentary. Keep all markdown formatting intact."
-          },
-          {
-            role: "user",
-            content: prompt
-          }
-        ],
-        model: this.model,
-        temperature: 0.7,
-        max_tokens: 2048,
-      });
-      return cleanModelOutput(completion.choices[0]?.message?.content || '');
-    }
-  },
-  gpt4: {
-    name: "gpt4",
-    model: "gpt-4o-mini",
-    async generateContent(prompt: string) {
-      const openai = getOpenAIClient();
-      if (!openai) {
-        throw new Error(`${MODEL_NAMES.gpt4} API key is not configured. Please add your API key in the settings or choose a different model.`);
-      }
-      const completion = await openai.chat.completions.create({
-        messages: [
-          {
-            role: "system",
-            content: "You are a direct and concise summarizer. Respond only with the summary, without any prefixes or meta-commentary. Keep all markdown formatting intact."
-          },
-          {
-            role: "user",
-            content: prompt
-          }
-        ],
-        model: this.model,
-        temperature: 0.7,
-        max_tokens: 2048,
-      });
-      return cleanModelOutput(completion.choices[0]?.message?.content || '');
-    }
-  }
-};
-
-async function splitTranscriptIntoChunks(transcript: string, chunkSize: number = 7000, overlap: number = 1000): Promise<string[]> {
-  const words = transcript.split(' ');
-  const chunks: string[] = [];
-  let currentChunk: string[] = [];
-  let currentLength = 0;
-
-  for (const word of words) {
-    if (currentLength + word.length > chunkSize && currentChunk.length > 0) {
-      chunks.push(currentChunk.join(' '));
-      // Keep last few words for overlap
-      const overlapWords = currentChunk.slice(-Math.floor(overlap / 10));
-      currentChunk = [...overlapWords];
-      currentLength = overlapWords.join(' ').length;
-    }
-    currentChunk.push(word);
-    currentLength += word.length + 1; // +1 for space
-  }
-
-  if (currentChunk.length > 0) {
-    chunks.push(currentChunk.join(' '));
-  }
-
-  return chunks;
-}
-
-async function downloadAudio(videoId: string): Promise<string> {
-  const tempPath = path.join('/tmp', `${videoId}_temp.mp3`);
-  const outputPath = path.join('/tmp', `${videoId}.flac`);
 
   try {
-    logger.info(`Starting audio download for video ${videoId}`);
-
-    // First download the audio
-    await new Promise<void>((resolve, reject) => {
-      const videoUrl = `https://www.youtube.com/watch?v=${videoId}`;
-      logger.debug(`Downloading from URL: ${videoUrl}`);
-
-      // Get video info first
-      ytdl.getInfo(videoUrl).then(info => {
-        logger.info('Video info retrieved:', {
-          title: info.videoDetails.title,
-          duration: info.videoDetails.lengthSeconds
-        });
-
-        // Select the best audio format
-        const audioFormats = ytdl.filterFormats(info.formats, 'audioonly');
-        const format = audioFormats.sort((a, b) => {
-          // Prefer opus/webm formats
-          if (a.codecs?.includes('opus') && !b.codecs?.includes('opus')) return -1;
-          if (!a.codecs?.includes('opus') && b.codecs?.includes('opus')) return 1;
-          // Then sort by audio quality (bitrate)
-          return (b.audioBitrate || 0) - (a.audioBitrate || 0);
-        })[0];
-
-        if (!format) {
-          reject(new Error('No suitable audio format found'));
-          return;
-        }
-
-        logger.info('Selected audio format:', {
-          container: format.container,
-          codec: format.codecs,
-          quality: format.quality,
-          bitrate: format.audioBitrate
-        });
-
-        const stream = ytdl.downloadFromInfo(info, { format });
-
-        stream.on('error', (error) => {
-          logger.error('Error in ytdl stream:', {
-            error: error.message,
-            stack: error.stack,
-            videoId
-          });
-          reject(error);
-        });
-
-        const writeStream = fs.createWriteStream(tempPath);
-
-        writeStream.on('error', (error) => {
-          logger.error('Error in write stream:', {
-            error: error.message,
-            path: tempPath
-          });
-          reject(error);
-        });
-
-        stream.pipe(writeStream)
-          .on('finish', () => {
-            const stats = fs.statSync(tempPath);
-            logger.info(`Audio download completed: ${tempPath}`, {
-              fileSize: stats.size
-            });
-            resolve();
-          })
-          .on('error', (error) => {
-            logger.error('Error during audio download:', {
-              error: error.message,
-              stack: error.stack
-            });
-            reject(error);
-          });
-      }).catch(error => {
-        logger.error('Failed to get video info:', {
-          error: error.message,
-          stack: error.stack,
-          videoId
-        });
-        reject(error);
-      });
-    });
-
-    // Verify the temp file exists and has content
-    const tempStats = fs.statSync(tempPath);
-    if (tempStats.size === 0) {
-      throw new Error('Downloaded audio file is empty');
-    }
-    logger.info('Temp file verification:', {
-      size: tempStats.size,
-      path: tempPath
-    });
-
-    // Convert to optimal format for Whisper
-    logger.info('Converting audio to FLAC format...');
-    try {
-      const { stdout, stderr } = await execAsync(`ffmpeg -i ${tempPath} -ar 16000 -ac 1 -c:a flac ${outputPath}`);
-      logger.debug('FFmpeg output:', { stdout, stderr });
-    } catch (error: any) {
-      logger.error('FFmpeg conversion failed:', {
-        error: error.message,
-        stdout: error.stdout,
-        stderr: error.stderr
-      });
-      throw error;
-    }
-
-    // Verify the output file
-    const stats = fs.statSync(outputPath);
-    if (stats.size === 0) {
-      throw new Error('Converted FLAC file is empty');
-    }
-    logger.info('Audio conversion completed successfully:', {
-      inputSize: tempStats.size,
-      outputSize: stats.size,
-      outputPath
-    });
-
-    // Clean up temp file
-    fs.unlinkSync(tempPath);
-    logger.info('Temporary MP3 file cleaned up');
-
-    return outputPath;
-  } catch (error) {
-    logger.error('Error in downloadAudio:', {
-      error: error instanceof Error ? {
-        message: error.message,
-        stack: error.stack
-      } : error,
-      videoId,
-      tempPath,
-      outputPath
-    });
-    // Clean up any files in case of error
-    if (fs.existsSync(tempPath)) {
-      try {
-        fs.unlinkSync(tempPath);
-        logger.info('Cleaned up temp MP3 file after error');
-      } catch (cleanupError) {
-        logger.error('Failed to cleanup temp MP3 file:', cleanupError);
-      }
-    }
-    if (fs.existsSync(outputPath)) {
-      try {
-        fs.unlinkSync(outputPath);
-        logger.info('Cleaned up FLAC file after error');
-      } catch (cleanupError) {
-        logger.error('Failed to cleanup FLAC file:', cleanupError);
-      }
-    }
-    throw error;
+    const models = await getAvailableModels(auth.userId);
+    return NextResponse.json({ models });
+  } catch {
+    return NextResponse.json(
+      { error: "Failed to get available models" },
+      { status: 500 }
+    );
   }
 }
 
-async function transcribeWithWhisper(audioPath: string): Promise<string> {
-  try {
-    logger.info('Starting transcription process with OpenAI Whisper');
+/**
+ * Supported output languages for summaries
+ */
+type OutputLanguage = "de" | "en" | "fr" | "es" | "it";
 
-    // Verify input file
-    const inputStats = fs.statSync(audioPath);
-    logger.debug('Input file details:', {
-      size: inputStats.size,
-      path: audioPath
-    });
+const LANGUAGE_NAMES: Record<OutputLanguage, string> = {
+  de: "German",
+  en: "English",
+  fr: "French",
+  es: "Spanish",
+  it: "Italian",
+};
 
-    const openai = getOpenAIClient();
-    if (!openai) {
-      throw new Error('OpenAI API key not configured for Whisper transcription.');
-    }
-
-    // Read file as buffer
-    const audioBuffer = await fs.promises.readFile(audioPath);
-    logger.info(`Read audio file of size: ${audioBuffer.length} bytes`);
-
-    try {
-      logger.info('Sending request to OpenAI Whisper API...');
-      const transcription = await openai.audio.transcriptions.create({
-        file: new File([audioBuffer], 'audio.flac', { type: 'audio/flac' }),
-        model: 'whisper-1',
-        language: 'auto'
-      });
-
-      logger.info('Successfully received transcription from Whisper');
-      return transcription.text;
-
-    } catch (error: any) {
-      logger.error('Transcription request failed:', error);
-      throw new Error(`Whisper transcription failed: ${error.message || 'Unknown error'}`);
-    }
-  } finally {
-    // Cleanup: Delete the temporary audio file
-    try {
-      await fs.promises.unlink(audioPath);
-      logger.info('Cleaned up temporary audio file');
-    } catch (error) {
-      logger.error('Failed to delete temporary audio file:', error);
-    }
+/**
+ * POST handler - Generate a video summary
+ * Accepts: { url: string, detailLevel?: number, language?: OutputLanguage }
+ * Returns: Streaming progress events
+ */
+export async function POST(req: NextRequest) {
+  // Authenticate request first (before starting stream)
+  const auth = authenticateRequest(req);
+  if (!auth.success) {
+    return auth.response;
   }
-}
 
-async function getTranscript(videoId: string): Promise<{ transcript: string; source: 'youtube' | 'whisper'; title: string }> {
-  try {
-    logger.info(`Attempting to fetch YouTube transcript for video ${videoId}`);
-    // First try YouTube transcripts
-    const transcriptList = await YoutubeTranscript.fetchTranscript(videoId);
-
-    // Extract title and process transcript as before
-    const firstFewLines = transcriptList.slice(0, 5).map(item => item.text).join(' ');
-    let title = firstFewLines.split('.')[0].trim();
-
-    if (title.length > 100) {
-      title = title.substring(0, 97) + '...';
-    }
-    if (title.length < 10) {
-      title = `YouTube Video Summary`;
-    }
-
-    logger.info('Successfully retrieved YouTube transcript');
-    logger.debug('Transcript details:', {
-      title,
-      length: transcriptList.length,
-      firstLine: transcriptList[0]?.text
-    });
-
-    return {
-      transcript: transcriptList.map(item => item.text).join(' '),
-      source: 'youtube',
-      title
-    };
-  } catch (error) {
-    logger.info('YouTube transcript not available, falling back to Whisper...', {
-      error: error instanceof Error ? error.message : String(error)
-    });
-
-    try {
-      // Get video info for title
-      logger.info('Fetching video info from YouTube');
-      const videoInfo = await ytdl.getInfo(videoId).catch(infoError => {
-        logger.error('Failed to get video info:', {
-          error: infoError instanceof Error ? {
-            message: infoError.message,
-            stack: infoError.stack
-          } : infoError,
-          videoId
-        });
-        throw infoError;
-      });
-
-      const title = videoInfo.videoDetails.title;
-      logger.info('Video info retrieved successfully:', {
-        title,
-        duration: videoInfo.videoDetails.lengthSeconds,
-        author: videoInfo.videoDetails.author.name
-      });
-
-      // Check if OpenAI API is available
-      const openai = getOpenAIClient();
-      if (!openai) {
-        const error = 'Transcript not available and OpenAI API key not configured for Whisper fallback.';
-        logger.error(error, { message: error });
-        throw new Error(error);
-      }
-
-      // Download and transcribe
-      try {
-        const audioPath = await downloadAudio(videoId);
-        logger.info('Audio downloaded successfully', {
-          path: audioPath,
-          fileStats: fs.statSync(audioPath)
-        });
-
-        const transcript = await transcribeWithWhisper(audioPath);
-        logger.info('Transcription completed successfully', {
-          transcriptLength: transcript.length
-        });
-
-        return { transcript, source: 'whisper', title };
-      } catch (processingError: unknown) {
-        logger.error('Processing error:', {
-          phase: typeof processingError === 'object' && processingError !== null && 'phase' in processingError ?
-            (processingError as { phase?: string }).phase : 'unknown',
-          error: processingError instanceof Error ? {
-            message: processingError.message,
-            stack: processingError.stack
-          } : String(processingError)
-        });
-        throw processingError;
-      }
-    } catch (error) {
-      logger.error('Failed to get transcript:', {
-        error: error instanceof Error ? {
-          message: error.message,
-          stack: error.stack
-        } : error,
-        videoId
-      });
-      throw new Error(`Failed to process video: ${error instanceof Error ? error.message : String(error)}`);
-    }
-  }
-}
-
-// Add new endpoint to check API key availability
-export async function GET(req: Request) {
-  return NextResponse.json(checkApiKeyAvailability());
-}
-
-export async function POST(req: Request) {
+  const userId = auth.userId;
   const encoder = new TextEncoder();
   const stream = new TransformStream();
   const writer = stream.writable.getWriter();
 
-  const writeProgress = async (data: any) => {
-    await writer.write(encoder.encode(JSON.stringify(data) + '\n'));
+  const writeProgress = async (event: ProgressEvent) => {
+    await writer.write(encoder.encode(JSON.stringify(event) + "\n"));
   };
 
+  // Process the request asynchronously
   (async () => {
     try {
-      const { url, language, mode, aiModel = 'gemini' } = await req.json();
-      const videoId = extractVideoId(url);
+      const body = await req.json();
+      const { url, detailLevel = 3, language = "en" } = body as {
+        url: string;
+        detailLevel?: number;
+        language?: OutputLanguage;
+      };
 
-      logger.info('Processing video request', {
-        videoId,
-        language,
-        mode,
-        aiModel
-      });
-
-      if (!AI_MODELS[aiModel as keyof typeof AI_MODELS]) {
-        throw new Error(`Invalid AI model selected. Please choose from: ${Object.values(MODEL_NAMES).join(', ')}`);
-      }
-
-      const selectedModel = AI_MODELS[aiModel as keyof typeof AI_MODELS];
-      logger.info(`Using ${MODEL_NAMES[aiModel as keyof typeof MODEL_NAMES]} model for generation...`);
-
-      // Check cache first
-      const existingSummary = await prisma.summary.findFirst({
-        where: {
-          videoId,
-          language
-        }
-      });
-
-      if (existingSummary) {
+      if (!url) {
         await writeProgress({
-          type: 'complete',
-          summary: existingSummary.content,
-          source: 'cache',
-          status: 'completed'
+          type: "error",
+          error: "URL is required",
         });
         await writer.close();
         return;
       }
 
-      // Get transcript
-      await writeProgress({
-        type: 'progress',
-        currentChunk: 0,
-        totalChunks: 1,
-        stage: 'analyzing',
-        message: 'Fetching video transcript...'
+      // Extract video ID
+      let videoId: string;
+      try {
+        videoId = extractVideoId(url);
+      } catch {
+        await writeProgress({
+          type: "error",
+          error: "Invalid YouTube URL",
+          details: "Could not extract video ID from the provided URL",
+        });
+        await writer.close();
+        return;
+      }
+
+      // Check cache first (per-user cache)
+      const existingSummary = await prisma.summary.findUnique({
+        where: {
+          videoId_userId: {
+            videoId,
+            userId,
+          },
+        },
+        include: {
+          topics: {
+            orderBy: { order: "asc" },
+          },
+          transcriptSegments: {
+            orderBy: { order: "asc" },
+          },
+        },
       });
 
-      const { transcript, source, title } = await getTranscript(videoId);
-      const chunks = await splitTranscriptIntoChunks(transcript);
-      const totalChunks = chunks.length;
-      const intermediateSummaries = [];
-
-      // Process chunks
-      for (let i = 0; i < chunks.length; i++) {
+      if (existingSummary) {
         await writeProgress({
-          type: 'progress',
-          currentChunk: i + 1,
-          totalChunks,
-          stage: 'processing',
-          message: `Processing section ${i + 1} of ${totalChunks}...`
+          type: "complete",
+          summary: {
+            id: existingSummary.id,
+            videoId: existingSummary.videoId,
+            title: existingSummary.title,
+            content: existingSummary.content,
+            hasTimestamps: existingSummary.hasTimestamps,
+            topics: existingSummary.topics.map((t) => ({
+              id: t.id,
+              title: t.title,
+              startMs: t.startMs,
+              endMs: t.endMs,
+              order: t.order,
+            })),
+            transcriptSegments: existingSummary.transcriptSegments.map((s) => ({
+              id: s.id,
+              text: s.text,
+              offset: s.offset,
+              duration: s.duration,
+              order: s.order,
+            })),
+            modelUsed: "glm-4.7", // Default for cached results
+            source: "cache",
+          },
+          status: "completed",
+        });
+        await writer.close();
+        return;
+      }
+
+      // Stage 1: Fetch Transcript
+      await writeProgress({
+        type: "progress",
+        stage: "fetching_transcript",
+        message: "Fetching video transcript...",
+      });
+
+      const transcriptResult = await fetchTranscript(url, userId);
+      const { content: transcriptContent, hasTimestamps } = transcriptResult;
+
+      // Log Supadata usage
+      await logApiUsage(userId, "supadata", "transcript", hasTimestamps ? 1 : 2, 0);
+
+      // Convert transcript content to string for storage and LLM processing
+      const transcriptText = Array.isArray(transcriptContent)
+        ? transcriptContent.map((s) => s.text).join(" ")
+        : transcriptContent;
+
+      // Calculate video duration from transcript segments
+      let videoDurationMs = 0;
+      if (Array.isArray(transcriptContent) && transcriptContent.length > 0) {
+        const lastSegment = transcriptContent[transcriptContent.length - 1];
+        videoDurationMs = lastSegment.offset + lastSegment.duration;
+      }
+
+      // Stage 2: Analyzing Topics (Smart Chunking)
+      await writeProgress({
+        type: "progress",
+        stage: "analyzing_topics",
+        message: "Analyzing content structure...",
+      });
+
+      const chunks = chunkTranscript(transcriptContent, hasTimestamps);
+
+      // Stage 3: Generate Summary
+      await writeProgress({
+        type: "progress",
+        stage: "generating_summary",
+        message: "Generating summary...",
+        detail: `Processing ${chunks.length} content sections`,
+      });
+
+      const { summary, modelUsed, tokensUsed } = await generateChapterBasedSummary(
+        chunks,
+        detailLevel,
+        language as OutputLanguage,
+        videoId,
+        userId
+      );
+
+      // Log LLM usage
+      await logApiUsage(userId, modelUsed, "summary", 0, tokensUsed || 0);
+
+      // Extract title from summary or generate one
+      const title = extractTitleFromSummary(summary) || `Video Summary - ${videoId}`;
+
+      // Stage 4: Build Timeline (Topic Extraction)
+      let topics: ExtractedTopic[] = [];
+      if (hasTimestamps && videoDurationMs > 0) {
+        await writeProgress({
+          type: "progress",
+          stage: "building_timeline",
+          message: "Extracting topics for timeline...",
         });
 
-        const prompt = `Create a detailed summary of section ${i + 1} in ${language}.
-        Maintain all important information, arguments, and connections.
-        Pay special attention to:
-        - Main topics and arguments
-        - Important details and examples
-        - Connections with other mentioned topics
-        - Key statements and conclusions
+        try {
+          const topicResult = await extractTopics(
+            transcriptText,
+            summary,
+            videoDurationMs,
+            { userId }
+          );
+          topics = topicResult.topics;
 
-        Text: ${chunks[i]}`;
-
-        const text = await selectedModel.generateContent(prompt);
-        intermediateSummaries.push(text);
+          // Log LLM usage for topic extraction
+          await logApiUsage(
+            userId,
+            topicResult.modelUsed,
+            "topic_extraction",
+            0,
+            topicResult.tokensUsed || 0
+          );
+        } catch (topicError) {
+          // Topic extraction is optional - continue without topics
+          console.warn("Topic extraction failed:", topicError);
+        }
       }
 
-      // Generate final summary
-      await writeProgress({
-        type: 'progress',
-        currentChunk: totalChunks,
-        totalChunks,
-        stage: 'finalizing',
-        message: 'Creating final summary...'
-      });
-
-      const combinedSummary = intermediateSummaries.join('\n\n=== Next Section ===\n\n');
-      const finalPrompt = createSummaryPrompt(combinedSummary, language, mode);
-      const summary = await selectedModel.generateContent(finalPrompt);
-
-      if (!summary) {
-        throw new Error('No summary content generated');
-      }
+      // Save transcript segments if available
+      const transcriptSegmentsData = Array.isArray(transcriptContent)
+        ? transcriptContent.map((segment, index) => ({
+            text: segment.text,
+            offset: segment.offset,
+            duration: segment.duration,
+            order: index,
+          }))
+        : [];
 
       // Save to database
-      await writeProgress({
-        type: 'progress',
-        currentChunk: totalChunks,
-        totalChunks,
-        stage: 'saving',
-        message: 'Saving summary to history...'
+      const savedSummary = await prisma.summary.create({
+        data: {
+          videoId,
+          userId,
+          title,
+          content: summary,
+          transcript: transcriptText,
+          hasTimestamps,
+          topics: {
+            create: topics.map((topic) => ({
+              title: topic.title,
+              startMs: topic.startMs,
+              endMs: topic.endMs,
+              order: topic.order,
+            })),
+          },
+          transcriptSegments: {
+            create: transcriptSegmentsData,
+          },
+        },
+        include: {
+          topics: {
+            orderBy: { order: "asc" },
+          },
+          transcriptSegments: {
+            orderBy: { order: "asc" },
+          },
+        },
       });
 
-      try {
-        // Check if summary already exists
-        const existingSummary = await prisma.summary.findFirst({
-          where: {
-            videoId,
-            language
-          }
-        });
+      // Return complete result
+      await writeProgress({
+        type: "complete",
+        summary: {
+          id: savedSummary.id,
+          videoId: savedSummary.videoId,
+          title: savedSummary.title,
+          content: savedSummary.content,
+          hasTimestamps: savedSummary.hasTimestamps,
+          topics: savedSummary.topics.map((t) => ({
+            id: t.id,
+            title: t.title,
+            startMs: t.startMs,
+            endMs: t.endMs,
+            order: t.order,
+          })),
+          transcriptSegments: savedSummary.transcriptSegments.map((s) => ({
+            id: s.id,
+            text: s.text,
+            offset: s.offset,
+            duration: s.duration,
+            order: s.order,
+          })),
+          modelUsed,
+          source: "generated",
+        },
+        status: "completed",
+      });
+    } catch (error) {
+      console.error("Summarize error:", error);
 
-        let savedSummary;
-        if (existingSummary) {
-          // Update existing summary
-          savedSummary = await prisma.summary.update({
-            where: {
-              id: existingSummary.id
-            },
-            data: {
-              content: summary,
-              mode,
-              source,
-              updatedAt: new Date()
-            }
-          });
-        } else {
-          // Create new summary
-          savedSummary = await prisma.summary.create({
-            data: {
-              videoId,
-              title,
-              content: summary,
-              language,
-              mode,
-              source
-            }
-          });
+      // Provide user-friendly error messages based on error type
+      let errorMessage = "Failed to generate summary";
+      let errorDetails: string | undefined;
+
+      if (error instanceof TranscriptError) {
+        switch (error.code) {
+          case "RATE_LIMIT_EXCEEDED":
+            errorMessage = "Rate limit exceeded. Please wait a moment and try again.";
+            break;
+          case "QUOTA_EXCEEDED":
+            errorMessage = "Monthly API quota exceeded. Please check your Supadata dashboard or wait for reset.";
+            break;
+          case "UNAUTHORIZED":
+            errorMessage = "Invalid API key. Please check your Supadata API key in settings.";
+            break;
+          case "SUPADATA_NOT_CONFIGURED":
+            errorMessage = "Supadata is not configured. Please add your API key in settings.";
+            break;
+          default:
+            errorMessage = error.message;
         }
-
-        await writeProgress({
-          type: 'complete',
-          summary: savedSummary.content,
-          source: savedSummary.source || 'youtube',
-          status: 'completed'
-        });
-      } catch (dbError: any) {
-        console.warn('Warning: Failed to save to database -', dbError?.message || 'Unknown database error');
-
-        // Still return the summary even if saving failed
-        await writeProgress({
-          type: 'complete',
-          summary,
-          source: source || 'youtube',
-          status: 'completed',
-          warning: 'Failed to save to history'
-        });
+        errorDetails = `Error code: ${error.code}`;
+      } else if (error instanceof Error) {
+        errorMessage = error.message;
+        errorDetails = error.stack;
       }
 
-    } catch (error: any) {
-      logger.error('Error processing video:', {
-        error,
-        stack: error?.stack,
-        cause: error?.cause
-      });
-
       await writeProgress({
-        type: 'error',
-        error: error?.message || 'Failed to process video',
-        details: error?.toString() || 'Unknown error'
-      }).catch((writeError) => {
-        logger.error('Failed to write error progress:', writeError);
+        type: "error",
+        error: errorMessage,
+        details: errorDetails,
       });
     } finally {
-      await writer.close().catch((closeError) => {
-        logger.error('Failed to close writer:', closeError);
+      await writer.close().catch(() => {
+        // Ignore close errors
       });
     }
   })();
 
   return new Response(stream.readable, {
     headers: {
-      'Content-Type': 'text/event-stream',
-      'Cache-Control': 'no-cache',
-      'Connection': 'keep-alive',
+      "Content-Type": "text/event-stream",
+      "Cache-Control": "no-cache",
+      Connection: "keep-alive",
     },
   });
+}
+
+/**
+ * Detail level configuration for chapter-based summaries
+ */
+interface DetailConfig {
+  description: string;
+  bulletPointsPerChapter: number;
+  showTransitions: boolean;
+  topChaptersOnly: boolean;
+  topChapterCount?: number;
+}
+
+const DETAIL_CONFIGS: Record<number, DetailConfig> = {
+  1: {
+    description: "very brief",
+    bulletPointsPerChapter: 1,
+    showTransitions: false,
+    topChaptersOnly: true,
+    topChapterCount: 3,
+  },
+  2: {
+    description: "concise",
+    bulletPointsPerChapter: 2,
+    showTransitions: false,
+    topChaptersOnly: true,
+    topChapterCount: 3,
+  },
+  3: {
+    description: "balanced",
+    bulletPointsPerChapter: 3,
+    showTransitions: false,
+    topChaptersOnly: false,
+  },
+  4: {
+    description: "detailed",
+    bulletPointsPerChapter: 4,
+    showTransitions: true,
+    topChaptersOnly: false,
+  },
+  5: {
+    description: "comprehensive",
+    bulletPointsPerChapter: 5,
+    showTransitions: true,
+    topChaptersOnly: false,
+  },
+};
+
+/**
+ * Generate chapter-based summary from transcript chunks
+ */
+async function generateChapterBasedSummary(
+  chunks: TranscriptChunk[],
+  detailLevel: number,
+  language: OutputLanguage,
+  videoId: string,
+  userId: string
+): Promise<{ summary: string; modelUsed: ModelId; tokensUsed?: number }> {
+  const config = DETAIL_CONFIGS[detailLevel] || DETAIL_CONFIGS[3];
+  const languageName = LANGUAGE_NAMES[language] || "English";
+
+  // Combine all chunks into a single transcript
+  const fullTranscript = chunks
+    .map((chunk) => {
+      if (chunk.startMs !== undefined && chunk.endMs !== undefined) {
+        return `[${formatTime(chunk.startMs)} - ${formatTime(chunk.endMs)}]\n${chunk.text}`;
+      }
+      return chunk.text;
+    })
+    .join("\n\n");
+
+  // Build the chapter-based summary prompt
+  const systemPrompt = `You are an expert video content analyst creating comprehensive, chapter-based summaries. Your summaries should allow someone to fully understand the video's content, context, and value without watching it.
+
+Key principles:
+- Structure the summary around chapters/topics in the video
+- Create flowing narrative with highlighted key points
+- Show how chapters connect and build upon each other
+- Be factual and neutral, never critical
+- Use clear, engaging language`;
+
+  const userPrompt = buildChapterBasedPrompt(
+    fullTranscript,
+    videoId,
+    config,
+    languageName
+  );
+
+  const result = await callWithFallback(userPrompt, {
+    systemPrompt,
+    maxTokens: 6144,
+    temperature: 0.7,
+    userId,
+  });
+
+  return {
+    summary: result.response,
+    modelUsed: result.modelUsed,
+    tokensUsed: result.tokensUsed,
+  };
+}
+
+/**
+ * Build the chapter-based summary prompt
+ */
+function buildChapterBasedPrompt(
+  transcript: string,
+  videoId: string,
+  config: DetailConfig,
+  languageName: string
+): string {
+  const bulletPointInstruction = config.bulletPointsPerChapter <= 2
+    ? `- Include only ${config.bulletPointsPerChapter} key bullet point(s) per chapter`
+    : `- Include ${config.bulletPointsPerChapter} detailed bullet points per chapter`;
+
+  const transitionInstruction = config.showTransitions
+    ? `- Add a transition note (→ *Connection to next chapter: [explanation]*) showing how each chapter leads to the next`
+    : "";
+
+  const chapterScopeInstruction = config.topChaptersOnly
+    ? `- Focus on the top ${config.topChapterCount} most important chapters in detail
+- Briefly mention other chapters in a single line each`
+    : `- Cover all identified chapters with appropriate depth`;
+
+  return `Analyze this video transcript and create a ${config.description} chapter-based summary.
+
+**IMPORTANT: Write the entire summary in ${languageName}.**
+
+**Transcript:**
+${transcript.slice(0, 25000)}${transcript.length > 25000 ? "\n\n[Transcript truncated...]" : ""}
+
+**Instructions:**
+1. First, identify the main chapters/topics discussed in the video based on natural topic transitions
+2. Then create a structured summary following the format below
+
+**Output Format:**
+
+**Title**: [Descriptive title for the video content]
+
+**Overview**: [2-3 sentences providing context - what this video covers and who it's for]
+
+**Recommended Chapters to Watch**:
+- [Chapter Name] - [Reason why this is worth watching in full] [(Timestamp)](https://youtube.com/watch?v=${videoId}&t=XXs)
+- [Another Chapter] - [Reason] [(Timestamp)](https://youtube.com/watch?v=${videoId}&t=XXs)
+
+---
+
+## Chapter 1: [Chapter Title] [(Timestamp)](https://youtube.com/watch?v=${videoId}&t=XXs)
+[2-3 sentence flowing summary of this chapter's content]
+${bulletPointInstruction}
+${transitionInstruction}
+
+## Chapter 2: [Chapter Title] [(Timestamp)](https://youtube.com/watch?v=${videoId}&t=XXs)
+[Continue with same structure...]
+
+---
+
+**Conclusion**: [Key takeaways and practical applications from the video]
+
+**Formatting Rules:**
+${chapterScopeInstruction}
+- Format timestamps as clickable links: [(MM:SS)](https://youtube.com/watch?v=${videoId}&t=XXs)
+- Use **bold** for key terms and concepts
+- Ensure chapter headings include the timestamp link
+- Be factual and neutral - summarize, don't critique`;
+}
+
+/**
+ * Extract title from the generated summary
+ */
+function extractTitleFromSummary(summary: string): string | null {
+  // Look for **Title**: or # Title patterns
+  const titlePatterns = [
+    /\*\*Title\*\*:\s*(.+)/i,
+    /^#\s+(.+)/m,
+    /^Title:\s*(.+)/mi,
+  ];
+
+  for (const pattern of titlePatterns) {
+    const match = summary.match(pattern);
+    if (match && match[1]) {
+      return match[1].trim();
+    }
+  }
+
+  return null;
+}
+
+/**
+ * Format milliseconds to human-readable time string
+ */
+function formatTime(ms: number): string {
+  const totalSeconds = Math.floor(ms / 1000);
+  const minutes = Math.floor(totalSeconds / 60);
+  const seconds = totalSeconds % 60;
+  return `${minutes}:${seconds.toString().padStart(2, "0")}`;
 }

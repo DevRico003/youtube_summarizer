@@ -1,22 +1,118 @@
 generator client {
   provider = "prisma-client-js"
+  output   = "../node_modules/.prisma/client"
 }
 
 datasource db {
   provider = "sqlite"
-  url      = "file:./dev.db"
+}
+
+model User {
+  id             String   @id @default(cuid())
+  email          String   @unique
+  passwordHash   String
+  setupCompleted Boolean  @default(false)
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @updatedAt
+
+  topicEdits UserTopicEdit[]
+  usageLogs  ApiUsageLog[]
+  summaries  Summary[]
+  apiKeys    UserApiKey[]
 }
 
 model Summary {
+  id            String   @id @default(cuid())
+  videoId       String
+  userId        String
+  title         String
+  content       String
+  transcript    String
+  hasTimestamps Boolean  @default(false)
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+
+  user               User                @relation(fields: [userId], references: [id], onDelete: Cascade)
+  topics             Topic[]
+  topicEdits         UserTopicEdit[]
+  transcriptSegments TranscriptSegment[]
+
+  @@unique([videoId, userId])
+  @@index([userId])
+}
+
+model Topic {
   id        String   @id @default(cuid())
-  videoId   String
+  summaryId String
   title     String
-  content   String
-  language  String
-  mode      String   @default("video")
-  source    String?
+  startMs   Int
+  endMs     Int
+  order     Int
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
-  @@unique([videoId, language])
+  summary    Summary         @relation(fields: [summaryId], references: [id], onDelete: Cascade)
+  topicEdits UserTopicEdit[]
+}
+
+model UserTopicEdit {
+  id            String  @id @default(cuid())
+  userId        String
+  summaryId     String
+  topicId       String
+  customTitle   String?
+  customStartMs Int?
+  customEndMs   Int?
+
+  user    User    @relation(fields: [userId], references: [id], onDelete: Cascade)
+  summary Summary @relation(fields: [summaryId], references: [id], onDelete: Cascade)
+  topic   Topic   @relation(fields: [topicId], references: [id], onDelete: Cascade)
+
+  @@unique([userId, topicId])
+}
+
+model ApiUsageLog {
+  id          String   @id @default(cuid())
+  userId      String?
+  service     String
+  endpoint    String
+  creditsUsed Float    @default(0)
+  tokensUsed  Int      @default(0)
+  timestamp   DateTime @default(now())
+
+  user User? @relation(fields: [userId], references: [id], onDelete: SetNull)
+}
+
+model AppConfig {
+  id             String @id @default(cuid())
+  key            String @unique
+  encryptedValue String
+}
+
+model UserApiKey {
+  id             String   @id @default(cuid())
+  userId         String
+  service        String   // "supadata", "zai", "openrouter", "gemini", "groq", "openai"
+  encryptedValue String
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @updatedAt
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([userId, service])
+  @@index([userId])
+}
+
+model TranscriptSegment {
+  id        String   @id @default(cuid())
+  summaryId String
+  text      String
+  offset    Int      // Start time in milliseconds
+  duration  Int      // Duration in milliseconds
+  order     Int      // Display order
+  createdAt DateTime @default(now())
+
+  summary Summary @relation(fields: [summaryId], references: [id], onDelete: Cascade)
+
+  @@index([summaryId, order])
 }

@@ -1,0 +1,960 @@
+## Codebase Patterns
+- Playwright E2E testing: Use `npm run test:e2e` for E2E tests, config in playwright.config.ts
+- E2E tests go in `e2e/` directory with `.spec.ts` extension
+- E2E route mocking: Use `page.route()` to intercept API calls and return mock responses
+- E2E async state: Wait for generated values with `await expect(input).not.toHaveValue("", { timeout: 5000 })`
+- E2E clipboard: Grant permissions with `context.grantPermissions(["clipboard-read", "clipboard-write"])`
+- Jest testing: Use `npm test` to run tests, configure with jest.config.js using ts-jest preset
+- Test path alias: `@/` maps to project root in jest.config.js via moduleNameMapper
+- Tests go in `__tests__/lib/` directory mirroring the lib/ structure, `__tests__/api/` for API tests
+- API integration tests: Mock Prisma with jest.mock('@/lib/prisma'), use NextRequest for API testing
+- Prisma schema uses SQLite for local development (file:./dev.db)
+- All models use cuid() for IDs
+- Relations use onDelete: Cascade or SetNull as appropriate
+- Typecheck via `npx tsc --noEmit`
+
+- V2 schema removes `language`, `mode`, `source` fields from Summary model; use `videoId` as unique key
+- Summary model now includes `transcript` and `hasTimestamps` fields
+- Use Node.js crypto module for AES-256-GCM encryption (no external deps needed)
+- AppConfig service uses Prisma upsert for idempotent setConfig operations
+- Middleware.ts goes in project root (not app folder) for Next.js
+- Setup wizard uses shadcn/ui components (Card, Button, Input) with Tailwind CSS
+- Use Web Crypto API (`crypto.getRandomValues`) for generating secrets in browser
+- API key test endpoints: POST to /api/setup/test-key with { service, apiKey }
+- API key save endpoints: POST to /api/setup/save-key with { service, apiKey }
+- Supadata SDK installed: @supadata/js for transcript fetching
+- Z.AI/GLM-4.7 uses OpenAI SDK with baseURL: https://api.z.ai/api/paas/v4/
+- Fallback models: Gemini (gemini-1.5-flash), Groq (llama-3.1-8b-instant), OpenAI (gpt-4o-mini)
+- Supadata transcript: Use `mode='native'` first (1 credit), fallback to `mode='auto'` for AI generation
+- Supadata timestamps: `text=false` returns segments with `offset` and `duration` in milliseconds
+- Smart chunking: detectTopicBoundaries() uses time gaps (>3s) and transition keywords
+- Chunking fallback: 7000 char chunks with 1000 char overlap when no timestamps
+- Chunking fallback: break when endPos reaches text length (or ensure nextStart > startPos) to avoid infinite loops with overlap
+- Topic extraction: `extractTopics()` uses LLM to identify 5-15 topics with timestamps
+- Topic validation: Topics must be contiguous (first starts at 0, last ends at video duration)
+- Summarize API: Returns streaming progress events with type, stage, message fields
+- Summarize API: Four stages - fetching_transcript, analyzing_topics, generating_summary, building_timeline
+- Summarize API: GET handler returns available models, POST handles summary generation
+- Auth deps: bcrypt@6.0.0 for password hashing, jsonwebtoken@9.0.3 for JWT tokens
+- Auth utilities: `hashPassword()`, `verifyPassword()`, `generateToken()`, `verifyToken()` in lib/auth.ts
+- JWT tokens use APP_SECRET env var as secret, expire in 7 days
+- bcrypt uses 12 salt rounds for password hashing
+- Auth API endpoints: POST /api/auth/register and POST /api/auth/login
+- Auth endpoints return { success, token, user: { id, email } } on success
+- Use email.toLowerCase() for case-insensitive email handling
+- Auth error responses use generic "Invalid email or password" for security (no user enumeration)
+- Login/Register pages: Store token and user in localStorage, redirect to "/" on success
+- AuthContext: Use `useAuth()` hook to access auth state (user, isAuthenticated, isLoading, login, logout)
+- AuthProvider wraps app via components/providers.tsx (client component wrapper pattern)
+- Timeline component: Use fixed positioning for tooltip with transform to center
+- Timeline colors: Array of 10 colors that cycle with modulo for consistent topic coloring
+
+- ChapterLinks: List display with formatted timestamps and YouTube timestamp links
+- YouTube timestamp format: `https://www.youtube.com/watch?v=${videoId}&t=${seconds}s`
+- TopicEditor: Editable titles (double-click), draggable boundaries, contiguous constraint enforcement
+- TopicEditor: Uses same TOPIC_COLORS palette as Timeline for visual consistency
+- ESLint: Using ESLint 9 with typescript-eslint, config in eslint.config.mjs
+- Protected API endpoints: Use `Authorization: Bearer <token>` header with `verifyToken()` from lib/auth.ts
+- UserTopicEdit: Uses `@@unique([userId, topicId])` constraint for upsert by composite key
+- DetailSlider: 5 levels (Brief, Concise, Balanced, Detailed, Comprehensive), returns 1-5 integer
+- ModelSelector: V2 uses `value`/`onChange` props (not `selectedModel`/`onModelChange`)
+- ModelSelector: Models fetched from GET /api/summarize which returns `{ models: ModelInfo[] }`
+- ModelSelector: Thinking mode toggle shows only when GLM-4.7 is selected and `onThinkingModeChange` is provided
+- UI components: Switch (radix-ui/react-switch) and Tooltip (radix-ui/react-tooltip) available
+
+- ProgressStages: Component for showing 4-stage progress (fetching_transcript, analyzing_topics, generating_summary, building_timeline)
+- ProgressStages: Uses Check icon for completed, Loader2 with animate-spin for current, numbered circle for pending
+- ProgressStages: Stage type exported for consumers to import
+
+- Home page: V2 uses DetailSlider and ModelSelector (no more language/mode selectors)
+- Home page: URL input with validation using `extractVideoId()` from lib/youtube
+- Home page: Query params: `detail`, `model`, `thinking` (no `lang` or `mode`)
+- Home page: Uses sm:text-* responsive classes for mobile-first typography
+
+- Summary page V2: Mobile-first vertical stack layout (thumbnail → timeline → chapters → summary)
+- Summary page V2: Uses SummaryData interface matching API response structure
+- Summary page V2: Thumbnail with play button overlay using YouTube thumbnail URLs (maxresdefault with hqdefault fallback)
+- Summary page V2: Inline error toast with dismiss button (X icon)
+- Summary page V2: ProgressStages component during loading state
+- Summary page V2: Query params changed from lang/mode/model to just `detail` (1-5)
+
+- Summary page V2 Desktop: Two-column layout at md breakpoint (768px)
+- Summary page V2 Desktop: Left column (400px fixed) = thumbnail + timeline + topic editor
+- Summary page V2 Desktop: Right column (flex-1) = chapter links + summary content
+- Summary page V2 Desktop: Use `transition-all duration-300` for smooth layout transitions
+- Summary page V2 Desktop: TopicEditor shown only when authenticated (not just hidden md:block)
+
+- Topic Editor Toggle: Only visible when isAuthenticated && hasTimestamps && topics.length > 0
+- Topic Editor Toggle: Mobile has Edit Topics button to toggle visibility, desktop always shows when auth
+- Topic Saving: Save via POST /api/topics/edit with `Authorization: Bearer <token>` header
+- Topic Saving: Body format: `{ summaryId, topics: [{ topicId, customTitle, customStartMs, customEndMs }] }`
+- Topic Saving: Use displayTopics state to reflect edited topics in Timeline and ChapterLinks
+- Success Toast: Show green success message with Check icon, auto-dismiss after 3 seconds
+
+- Markdown export: `generateMarkdown(summary, topics, videoId)` returns formatted markdown string
+- Markdown export: Includes title, YouTube video link, chapter links with timestamps, and summary content
+- User Preferences API: GET returns preferences (creates defaults on first access), POST/PUT updates preferences
+- Preferences API: Protected route using `getUserIdFromRequest()` pattern with JWT auth
+- Preferences API: Uses Prisma upsert for create-or-update behavior on POST
+- Home page preferences: Fetch from `/api/preferences` on mount when `isAuthenticated` (via useAuth hook)
+- Home page preferences: Wait for `authLoading` to complete, use `preferencesLoaded` flag to prevent duplicate fetches
+- Settings page: Protected route pattern - check `isLoading` and `isAuthenticated` from `useAuth()`, redirect to /login if not authenticated
+- Settings page: Tab navigation uses array of tab objects with id, label, icon, description for easy extension
+- Settings page: Responsive tabs - horizontal scrollable on mobile, vertical sidebar on desktop (md breakpoint)
+- API Keys settings: GET /api/settings/api-keys returns masked keys (last 4 chars visible)
+- API Keys settings: DELETE /api/settings/api-keys?service=xxx removes a key from AppConfig
+- API Keys settings: Uses `maskApiKey()` helper to show bullet points + last 4 chars
+- UI Label component: @radix-ui/react-label for form labels
+- API key form: Eye/EyeOff toggle for password visibility, Test/Save/Delete buttons per service
+- UserPreference: Now includes `thinkingMode` boolean field (default false) for GLM-4.7 thinking mode preference
+- Preferences tab: Uses LANGUAGES and MODELS constants for dropdown options
+- Preferences tab: Track `originalPreferences` to enable/disable Save button based on changes
+- Preferences tab: Case blocks with const declarations need braces `case "foo": { const x = ...; return ...; }`
+- PromptTemplate model: Uses @@unique([userId, name]) for unique template names per user
+- Templates API: GET returns all templates with default created on first access, POST creates, PUT updates, DELETE removes
+- Templates API: Cannot delete default template (isDefault: true)
+- Default template includes placeholder variables: {{transcript}}, {{language}}, {{detailLevel}}
+- Usage API: GET /api/usage returns aggregated usage with daily/weekly/monthly breakdowns
+- Docker: Multi-stage build (deps → builder → runner), use `output: "standalone"` in next.config.ts
+- Docker: Standalone mode creates server.js - start with `node server.js` not `npm start`
+- Usage API: Query params `startDate` and `endDate` for date range filtering
+- Usage API: Returns byService array with totalRequests, totalCredits, totalTokens per service
+- Usage API: Returns recent logs (last 100) for per-request log table display
+
+---
+
+## 2026-01-27 - US-044
+- What was implemented: Created usage tracking API endpoint for viewing user's API usage statistics
+- Files changed:
+  - app/api/usage/route.ts (new)
+- **Learnings for future iterations:**
+  - Usage API uses `getUserIdFromRequest()` pattern for auth (same as preferences API)
+  - Daily breakdown uses `formatDate()` to get YYYY-MM-DD keys
+  - Weekly breakdown uses `getWeekKey()` to get YYYY-WXX keys (ISO week format)
+  - Monthly breakdown uses `getMonthKey()` to get YYYY-MM keys
+  - Date range filtering sets end date to 23:59:59.999 to include full end day
+  - Logs limited to last 100 entries for performance
+  - Aggregation done in-memory using Map for each grouping (service, daily, weekly, monthly)
+
+---
+
+## 2026-01-27 - US-042
+- What was implemented: Created prompt templates API with full CRUD endpoints
+- Files changed:
+  - prisma/schema.prisma (added PromptTemplate model with user relation)
+  - prisma/migrations/20260127172033_add_prompt_templates/migration.sql (new)
+  - app/api/templates/route.ts (new - GET/POST/PUT/DELETE endpoints)
+- **Learnings for future iterations:**
+  - PromptTemplate model uses @@unique([userId, name]) to prevent duplicate names per user
+  - GET endpoint creates default template on first access if none exist
+  - Default template marked with isDefault: true cannot be deleted
+  - PUT endpoint validates template ownership before allowing updates
+  - Use 409 Conflict for duplicate name validation errors
+  - Template variables: {{transcript}}, {{language}}, {{detailLevel}} for prompt customization
+
+---
+
+## 2026-01-27 - US-041
+- What was implemented: Created preferences settings tab with language selector, detail level slider, model selector, and thinking mode toggle
+- Files changed:
+  - prisma/schema.prisma (added thinkingMode field to UserPreference)
+  - prisma/migrations/20260127171521_add_thinking_mode/migration.sql (new)
+  - app/api/preferences/route.ts (updated to handle thinkingMode)
+  - app/settings/page.tsx (added full preferences tab implementation)
+- **Learnings for future iterations:**
+  - Preferences tab reuses DetailSlider component but creates simple Select for model instead of full ModelSelector
+  - Track original preferences to enable Save button only when changes are made
+  - Show thinking mode toggle only when GLM-4.7 is selected (check model.supportsThinking)
+  - Use case block braces `{ }` when declaring const variables in switch statements
+  - Preferences save uses POST to /api/preferences with full preferences object
+  - Success/error status with auto-dismiss after 3 seconds using setTimeout
+
+---
+
+## 2026-01-27 - US-040
+- What was implemented: Created API keys settings tab with full CRUD functionality
+- Files changed:
+  - app/api/settings/api-keys/route.ts (new)
+  - app/settings/page.tsx (updated with API keys tab implementation)
+  - components/ui/label.tsx (new)
+  - package.json (added @radix-ui/react-label)
+- **Learnings for future iterations:**
+  - API Keys tab uses `apiKeys` state for server data, `apiKeyStates` for form state per service
+  - `maskApiKey()` shows bullet points (min 20) + last 4 chars for security display
+  - Test button reuses /api/setup/test-key endpoint from setup wizard
+  - Save button reuses /api/setup/save-key endpoint from setup wizard
+  - Delete button uses new DELETE /api/settings/api-keys?service=xxx endpoint
+  - Eye/EyeOff toggle for password visibility per input field
+  - Status indicators: green dot for configured, gray dot for not configured
+  - Form clears and refreshes after successful save
+  - Card per API service with test status feedback inline
+
+---
+
+## 2026-01-27 - US-039
+- What was implemented: Created settings page layout with protected route and tab navigation
+- Files changed:
+  - app/settings/page.tsx (new)
+- **Learnings for future iterations:**
+  - Protected route pattern: Check `isLoading` first (show loading), then `isAuthenticated` (redirect if false)
+  - Tab state management: `useState<Tab>` with union type for tab IDs
+  - Desktop tabs: Vertical list with full-width buttons, show description below label
+  - Mobile tabs: Horizontal scrollable with `overflow-x-auto` and `flex gap-2`
+  - Tab content rendering via `renderTabContent()` switch statement for clean separation
+  - Placeholder cards for each tab ready for future implementation (US-040 through US-045)
+  - Use `min-w-0` on flex children to prevent overflow issues with text truncation
+
+---
+
+## 2026-01-27 - US-037
+- What was implemented: Created user preferences API with GET and POST/PUT endpoints
+- Files changed:
+  - app/api/preferences/route.ts (new)
+- **Learnings for future iterations:**
+  - `getUserIdFromRequest()` pattern extracts token from Authorization header and verifies with `verifyToken()`
+  - GET endpoint creates default preferences on first access if none exist
+  - POST uses Prisma upsert pattern - creates if not exists, updates if exists
+  - PUT is an alias for POST for RESTful compatibility
+  - Validates detailLevel range (1-5) when provided
+  - Only includes provided fields in update data to allow partial updates
+  - Returns preferences object with: language, detailLevel, preferredModel, customPrompt
+
+---
+
+## 2026-01-27 - US-038
+- What was implemented: Added user preferences loading on home page mount
+- Files changed:
+  - app/page.tsx (added useEffect for fetching preferences)
+- **Learnings for future iterations:**
+  - Use `useAuth()` hook to check `isAuthenticated` and `authLoading` states
+  - Wait for `authLoading` to complete before fetching preferences
+  - Use `preferencesLoaded` state flag to prevent multiple fetches
+  - Fetch from `/api/preferences` with `Authorization: Bearer <token>` header
+  - Pre-populate `detailLevel` and `aiModel` state from preferences
+  - Silently fail and use defaults if fetch fails (don't block user)
+  - Unauthenticated users simply get default values (detailLevel=3, aiModel="")
+
+---
+
+## 2026-01-27 - US-036
+- What was implemented: Added export button to summary page for downloading markdown files
+- Files changed:
+  - app/summary/[videoUrl]/page.tsx (added Export button and handleExport function)
+- **Learnings for future iterations:**
+  - Export button placed in Summary content card header with flex justify-between layout
+  - `handleExport()` uses `generateMarkdown()` from lib/exportMarkdown.ts with displayTopics (edited or original)
+  - Download via Blob with `text/markdown;charset=utf-8` MIME type
+  - File download using dynamically created anchor element with URL.createObjectURL()
+  - Filename format: `${videoId}-summary.md`
+  - Clean up: revokeObjectURL after download to prevent memory leaks
+
+---
+
+## 2026-01-27 - US-035
+- What was implemented: Created markdown export utility for exporting summaries as markdown files
+- Files changed:
+  - lib/exportMarkdown.ts (new)
+- **Learnings for future iterations:**
+  - `generateMarkdown()` accepts Summary (title, content), Topic[], and videoId
+  - Chapter links use YouTube timestamp format: `&t=${seconds}s`
+  - `formatTime()` helper converts ms to MM:SS or HH:MM:SS for long videos
+  - Topics sorted by order before rendering chapter links
+  - Footer includes "Generated with YouTube Summarizer" attribution
+
+---
+
+## 2026-01-27 - US-034
+- What was implemented: Added topic editor toggle functionality to summary page
+- Files changed:
+  - app/summary/[videoUrl]/page.tsx (added toggle, save functionality, success toast)
+- **Learnings for future iterations:**
+  - TopicEditor now requires authentication to be visible (via useAuth hook)
+  - Mobile: Edit Topics button toggles TopicEditor visibility
+  - Desktop: TopicEditor always visible when authenticated
+  - Save uses displayTopics state to maintain edits across render cycles
+  - Success toast: green-600/green-400 colors with Check icon
+  - Loading state: Loader2 with animate-spin during save
+  - Error handling: Uses existing inline error toast pattern
+
+---
+
+## 2026-01-27 - US-032
+- What was implemented: Redesigned summary page with mobile-first vertical layout
+- Files changed:
+  - app/summary/[videoUrl]/page.tsx (rewritten)
+- **Learnings for future iterations:**
+  - V2 API returns SummaryData with topics array, hasTimestamps boolean, and videoId
+  - Video duration calculated from max(topics.endMs) when topics exist
+  - Thumbnail URL: `https://img.youtube.com/vi/${videoId}/maxresdefault.jpg` with hqdefault fallback
+  - Play button overlay: red-600 bg, group-hover:scale-110 transition
+  - Timeline only shown when hasTimestamps && topics.length > 0 && videoDuration > 0
+  - Inline error toast: destructive/15 bg with AlertCircle icon and X dismiss button
+  - Loading state shows thumbnail placeholder with ProgressStages component
+  - Stream parsing uses buffer to handle partial JSON lines
+
+---
+
+## 2026-01-27 - US-031
+- What was implemented: Redesigned home page with modern layout and V2 components
+- Files changed:
+  - app/page.tsx (rewritten)
+- **Learnings for future iterations:**
+  - Removed V1 language and mode selectors (V2 uses detailLevel instead)
+  - URL validation on blur and submit with inline error display
+  - New query params: `detail`, `model`, `thinking` (when GLM-4.7 with thinking mode)
+  - Mobile-first design with responsive text sizing (text-2xl sm:text-3xl)
+  - Icon in centered circular container using bg-primary/10 background
+  - Input has YouTube icon inside with pl-10 padding
+  - Button shows loading spinner (Loader2 with animate-spin) when submitting
+
+---
+
+## 2026-01-27 - US-030
+- What was implemented: Created ProgressStages component for displaying summary generation progress
+- Files changed:
+  - components/ProgressStages.tsx (new)
+- **Learnings for future iterations:**
+  - ProgressStages accepts `currentStage: Stage | null` prop to indicate current progress
+  - Four stages: fetching_transcript, analyzing_topics, generating_summary, building_timeline
+  - Stage styling: green for completed, blue for current (with spinner), muted for pending
+  - Uses Check icon from lucide-react for completed stages
+  - Uses Loader2 with animate-spin for current stage spinner effect
+  - Pending stages show step number (1-4) in circle
+  - Dark mode supported via dark: prefixed Tailwind classes
+
+---
+
+## 2026-01-27 - US-029
+- What was implemented: Updated ModelSelector component with model availability, status indicators, and thinking mode
+- Files changed:
+  - components/ModelSelector.tsx (rewritten for V2)
+  - components/ui/switch.tsx (new)
+  - components/ui/tooltip.tsx (new)
+  - package.json (added @radix-ui/react-switch, @radix-ui/react-tooltip)
+  - app/page.tsx (updated to use new ModelSelector props)
+- **Learnings for future iterations:**
+  - ModelSelector fetches models from `/api/summarize` GET endpoint on mount
+  - Auto-selects first available model if none selected or current unavailable
+  - Green/red status indicators using w-2 h-2 rounded-full bg-green-500/bg-red-500
+  - Thinking mode toggle only visible for GLM-4.7 when onThinkingModeChange prop provided
+  - Each model has icon from lucide-react (Brain, Sparkles, Cpu, Bot)
+  - Model descriptions displayed in SelectItem and via Tooltip on info icon
+  - Uses TooltipProvider wrapper for tooltips to work
+
+---
+
+## 2026-01-27 - US-028
+- What was implemented: Created DetailSlider component with 5 detail levels
+- Files changed:
+  - components/DetailSlider.tsx (new)
+- **Learnings for future iterations:**
+  - DetailSlider uses range input with 1-5 values mapping to detail level labels
+  - Each level has label and description for UI feedback
+  - onClick on dot markers allows quick level selection
+  - Value passed to onChange is integer (1-5), maps to detailLevel in API
+  - Uses accent-primary class for slider color theming
+---
+
+## 2026-01-27 - US-027
+- What was implemented: Created API endpoint for saving and retrieving user topic edits
+- Files changed:
+  - app/api/topics/edit/route.ts (new)
+- **Learnings for future iterations:**
+  - Protected API pattern: Extract token from `Authorization: Bearer <token>` header
+  - Use `verifyToken()` from lib/auth.ts to validate JWT and get userId
+  - Prisma upsert with compound unique key: `userId_topicId: { userId, topicId }`
+  - GET endpoint returns topics with user edits merged (isEdited flag indicates customization)
+  - POST validates that topic IDs belong to the specified summary before saving
+  - UserTopicEdit stores only custom values (null means use original)
+---
+
+## 2026-01-27 - US-026
+- What was implemented: Created TopicEditor component for editing topic titles and boundaries
+- Files changed:
+  - components/TopicEditor.tsx (new)
+  - eslint.config.mjs (new - ESLint 9 flat config)
+  - package.json (added eslint, eslint-config-next, typescript-eslint, @eslint/js, @eslint/eslintrc)
+- **Learnings for future iterations:**
+  - TopicEditor displays topics with editable titles (double-click to edit)
+  - Drag handles on timeline allow adjusting start/end boundaries
+  - Contiguous constraint: when moving a boundary, adjacent topics snap to match
+  - MIN_TOPIC_DURATION (1000ms) prevents topics from being too short
+  - Uses same color palette as Timeline for visual consistency
+  - hasChanges memoized comparison enables/disables Save/Revert buttons
+  - originalTopics stored in useRef to track initial state for revert
+  - Mouse event listeners attached to document for smooth drag experience
+  - ESLint 9 requires flat config format (eslint.config.mjs) with typescript-eslint
+---
+
+## 2026-01-27 - US-025
+- What was implemented: Created ChapterLinks component for clickable chapter links
+- Files changed:
+  - components/ChapterLinks.tsx (new)
+- **Learnings for future iterations:**
+  - ChapterLinks displays sorted topics as clickable links with timestamps
+  - YouTube timestamp links use `&t=${seconds}s` format (same as Timeline)
+  - formatTime() helper reused from Timeline pattern (handles hours for long videos)
+  - Links open in new tab with `target="_blank"` and `rel="noopener noreferrer"`
+  - Uses lucide-react ExternalLink icon that appears on hover
+  - Hover state uses `group` class with `group-hover:` utilities for interaction
+---
+
+## 2026-01-27 - US-024
+- What was implemented: Created Timeline component for visual topic display
+- Files changed:
+  - components/Timeline.tsx (new)
+- **Learnings for future iterations:**
+  - Timeline uses flexbox with percentage widths based on topic duration / total duration
+  - Topic interface: id, title, startMs, endMs, order (from Prisma schema)
+  - formatTime() helper converts ms to readable time (handles hours for long videos)
+  - Tooltip positioned with fixed positioning and transform for centering
+  - Color palette cycles through 10 distinct colors using index % length
+  - Click handler opens YouTube with `&t=${seconds}s` timestamp parameter
+  - aria-label provides accessibility for screen readers
+---
+
+## 2026-01-27 - US-023
+- What was implemented: Created auth context provider for React state management
+- Files changed:
+  - contexts/AuthContext.tsx (new)
+  - components/providers.tsx (new)
+  - app/layout.tsx (updated to wrap with Providers)
+- **Learnings for future iterations:**
+  - Use separate providers.tsx client component to wrap server layout
+  - AuthContext provides: user, isAuthenticated, isLoading, login, logout
+  - Load from localStorage on mount with useEffect (client-side only)
+  - `useAuth()` hook throws if used outside AuthProvider
+  - Use `useCallback` for login/logout to prevent unnecessary re-renders
+  - isLoading state helps prevent flash of wrong auth state on mount
+---
+
+## 2026-01-27 - US-022
+- What was implemented: Created registration page UI with email/password/confirmation form
+- Files changed:
+  - app/register/page.tsx (new)
+- **Learnings for future iterations:**
+  - Registration page follows same Card/Input/Button patterns as login page
+  - Added password confirmation field with client-side validation
+  - Error display: "Passwords do not match" and "Password must be at least 8 characters"
+  - `isFormValid` computed from email, password, confirmPassword, and password match check
+  - Password hint shows minimum 8 character requirement
+  - Link uses Next.js Link component with href="/login"
+---
+
+## 2026-01-27 - US-020
+- What was implemented: Created auth API endpoints for user registration and login
+- Files changed:
+  - app/api/auth/register/route.ts (new)
+  - app/api/auth/login/route.ts (new)
+- **Learnings for future iterations:**
+  - Registration validates: email format, password min 8 chars, unique email
+  - Registration uses 409 Conflict for existing email
+  - Login uses 401 Unauthorized for invalid credentials (generic message for security)
+  - Both endpoints return JWT token and user object on success
+  - Email stored lowercase for case-insensitive login
+---
+
+## 2026-01-27 - US-019
+- What was implemented: Created auth utility functions for password hashing and JWT token management
+- Files changed:
+  - lib/auth.ts (new)
+- **Learnings for future iterations:**
+  - `hashPassword(password)` uses bcrypt with 12 salt rounds
+  - `verifyPassword(password, hash)` returns boolean using bcrypt.compare
+  - `generateToken(userId)` creates JWT with 7-day expiration using APP_SECRET
+  - `verifyToken(token)` returns `{ userId }` or null if invalid/expired
+  - JWT payload only contains userId - keep it minimal
+  - Error handling in verifyToken catches all exceptions and returns null
+---
+
+## 2026-01-27 - US-018
+- What was implemented: Installed authentication dependencies (bcrypt, jsonwebtoken) with TypeScript type definitions
+- Files changed:
+  - package.json (added bcrypt, jsonwebtoken, @types/bcrypt, @types/jsonwebtoken)
+  - package-lock.json (updated with new dependencies)
+- **Learnings for future iterations:**
+  - bcrypt@6.0.0 requires Node.js native bindings (C++ compilation)
+  - jsonwebtoken@9.0.3 is the standard JWT library for Node.js
+  - Type definitions: @types/bcrypt@6.0.0 and @types/jsonwebtoken@9.0.10
+---
+
+## 2026-01-27 - US-017
+- What was implemented: Rewrote the summarize API endpoint for V2 architecture
+- Files changed:
+  - app/api/summarize/route.ts (complete rewrite)
+- **Learnings for future iterations:**
+  - V2 summarize endpoint uses Supadata for transcripts via `fetchTranscript(url)`
+  - Smart chunking via `chunkTranscript(content, hasTimestamps)` before LLM processing
+  - LLM fallback chain via `callWithFallback(prompt, options)` for resilient summary generation
+  - Topic extraction only runs when `hasTimestamps && videoDurationMs > 0`
+  - Video duration calculated from last segment: `offset + duration`
+  - Detail levels 1-5 map to descriptions: brief, concise, balanced, detailed, comprehensive
+  - Multi-chunk summaries: each chunk summarized first, then combined for final summary
+  - Progress events streamed via TransformStream with `text/event-stream` content type
+  - Cached results return immediately with `source: "cache"`, new results have `source: "generated"`
+  - API usage logged for supadata (transcript), model used (summary), and topic extraction
+  - Title extraction from summary looks for `**Title**:`, `# Title`, or `Title:` patterns
+---
+
+## 2026-01-27 - US-016
+- What was implemented: Created topic extraction utility using LLM to identify video topics with timestamps
+- Files changed:
+  - lib/topicExtraction.ts (new)
+- **Learnings for future iterations:**
+  - `extractTopics(transcript, summary, videoDurationMs)` returns topics with title, startMs, endMs, order
+  - Lower temperature (0.3) for JSON output improves consistency
+  - Prompt must specify JSON-only output, no markdown code blocks
+  - `parseTopicsFromResponse()` handles markdown code blocks cleanup
+  - `validateAndAdjustTopics()` ensures contiguity: first starts at 0, last ends at video duration
+  - `enforceContiguity()` provides final pass to guarantee no gaps/overlaps
+  - Topics are sorted by startMs before adjustment
+  - Minimum topic duration enforced at 1000ms
+  - Returns `TopicExtractionResult` with topics array, modelUsed, and tokensUsed
+---
+
+## 2026-01-27 - US-015
+- What was implemented: Created smart chunking utility with topic boundary detection
+- Files changed:
+  - lib/chunking.ts (new)
+- **Learnings for future iterations:**
+  - `detectTopicBoundaries()` detects boundaries via time gaps (>3s) and transition keywords
+  - Keywords include: 'next topic', 'moving on', 'let's talk about', 'another thing', etc.
+  - `chunkTranscript()` returns chunks with startMs/endMs when timestamps available
+  - Fallback chunking: 7000 chars per chunk, 1000 char overlap, sentence boundary-aware
+  - TopicBoundary type includes segmentIndex, offsetMs, and reason ('time_gap' | 'keyword')
+  - TranscriptChunk type includes text, optional startMs/endMs, optional segmentIndices
+---
+
+## 2026-01-27 - US-014
+- What was implemented: Created LLM fallback chain for resilient model calling
+- Files changed:
+  - lib/llmChain.ts (new)
+- **Learnings for future iterations:**
+  - Fallback order: GLM-4.7 → Gemini → Groq → OpenAI
+  - `getAvailableModels()` returns availability status for all models
+  - `callWithFallback()` supports preferredModel option to change fallback order
+  - Each model call returns `{ response, modelUsed, tokensUsed }`
+  - Google Generative AI SDK has type definition issues - use `as any` for generationConfig
+  - Models: glm-4.7 (Z.AI), gemini-1.5-flash (Google), llama-3.1-8b-instant (Groq), gpt-4o-mini (OpenAI)
+  - API keys stored as: ZAI_API_KEY, GEMINI_API_KEY, GROQ_API_KEY, OPENAI_API_KEY
+---
+
+## 2026-01-27 - US-013
+- What was implemented: Created GLM-4.7 client service using OpenAI SDK
+- Files changed:
+  - lib/glm.ts (new)
+- **Learnings for future iterations:**
+  - GLM-4.7 uses OpenAI SDK with baseURL: https://api.z.ai/api/paas/v4/
+  - API key stored in AppConfig under "ZAI_API_KEY"
+  - Singleton pattern with caching for client instance (same as Supadata client)
+  - `getGlmClient()` returns null if API key not configured
+  - `clearGlmClient()` available to reset when key changes
+  - `getGlmModelName()` returns "glm-4.7" for API calls
+---
+
+## 2026-01-27 - US-012
+- What was implemented: Created API usage logging utility for tracking service usage
+- Files changed:
+  - lib/usageLogger.ts (new)
+- **Learnings for future iterations:**
+  - `logApiUsage()` accepts null userId for unauthenticated requests
+  - Function catches errors silently to avoid breaking main flow
+  - Added `getUserUsageStats()` helper for future usage display features
+  - Usage aggregation by service for dashboard statistics
+---
+
+## 2026-01-27 - US-011
+- What was implemented: Created transcript fetching service with cost-efficient native-first strategy
+- Files changed:
+  - lib/transcript.ts (new)
+- **Learnings for future iterations:**
+  - Use `supadata.transcript({ url, mode, text })` for general transcript with mode support
+  - `mode='native'` costs 1 credit, `mode='auto'` tries native then generates with AI
+  - `text=false` returns timestamped segments with offset/duration in milliseconds
+  - SDK returns `TranscriptOrJobId` - check for `'jobId' in result` for async processing
+  - `JobResult<Transcript>` has transcript in `.result` property, not direct fields
+  - Poll `transcript.getJobStatus(jobId)` for async jobs (max 60 seconds timeout)
+  - Export `TranscriptSegment`, `TranscriptResult`, `TranscriptError` types for consumers
+---
+
+## 2026-01-27 - US-010
+- What was implemented: Created Supadata client service for transcript fetching
+- Files changed:
+  - lib/supadata.ts (new)
+- **Learnings for future iterations:**
+  - Supadata SDK: `new Supadata({ apiKey })` to initialize
+  - API key stored in AppConfig under "SUPADATA_API_KEY"
+  - Use singleton pattern with caching for client instance
+  - Provide `clearSupadataClient()` for when API key changes
+  - `getSupadataClient()` returns null gracefully if key not configured
+---
+
+## 2026-01-27 - US-009
+- What was implemented: Created Step 4 of setup wizard for fallback model API keys (Gemini, Groq, OpenAI)
+- Files changed:
+  - app/setup/page.tsx (added Step 4 UI - state, handlers, form for 3 API keys)
+  - app/api/setup/test-key/route.ts (added validation for Gemini, Groq, OpenAI)
+- **Learnings for future iterations:**
+  - Gemini uses @google/generative-ai SDK with model "gemini-1.5-flash"
+  - Groq uses groq-sdk with model "llama-3.1-8b-instant"
+  - OpenAI uses openai SDK with model "gpt-4o-mini"
+  - Step 4 uses handleFinish() which saves all keys before redirecting
+  - Skip button on Step 4 just redirects to home without saving (no API call needed)
+  - All three SDKs were already installed in package.json from earlier
+---
+
+## 2026-01-27 - US-008
+- What was implemented: Created Step 3 of setup wizard for Z.AI API key configuration
+- Files changed:
+  - app/setup/page.tsx (updated with Step 3 UI - state, handlers, form)
+  - app/api/setup/test-key/route.ts (added Z.AI validation using OpenAI SDK)
+- **Learnings for future iterations:**
+  - Z.AI uses OpenAI SDK with custom baseURL (https://api.z.ai/api/paas/v4/)
+  - Model name is "glm-4.7" for Z.AI completions
+  - Test validation uses minimal request: max_tokens: 5, simple message
+  - UI pattern follows Step 2 exactly: state vars, test handler, save handler, skip handler
+  - CONFIG_KEYS in save-key endpoint already maps "zai" to "ZAI_API_KEY"
+---
+
+## 2026-01-27 - US-007
+- What was implemented: Created Step 2 of setup wizard for Supadata API key configuration
+- Files changed:
+  - app/setup/page.tsx (updated with Step 2 UI)
+  - app/api/setup/test-key/route.ts (new - validates API keys)
+  - app/api/setup/save-key/route.ts (new - saves encrypted keys to AppConfig)
+  - package.json (added @supadata/js dependency)
+- **Learnings for future iterations:**
+  - API key testing: Use Supadata SDK to make a test call (youtube.transcript with short video)
+  - Save-key endpoint uses CONFIG_KEYS mapping for service to config key names
+  - Steps 2-4 share similar patterns: input field, test button, skip button, save on next
+  - Skip functionality just calls save-key with empty apiKey to signal skip
+  - Status states: "idle" | "testing" | "success" | "error" for UI feedback
+  - Use password type for API key inputs for security
+  - handleBack and handleNext use prev => prev +/- 1 pattern for step navigation
+---
+
+## 2026-01-27 - US-006
+- What was implemented: Created setup wizard page with Step 1 for App Secret configuration
+- Files changed:
+  - app/setup/page.tsx (new)
+- **Learnings for future iterations:**
+  - Multi-step wizard can use useState for currentStep and conditionally render content
+  - Use Web Crypto API for generating cryptographically secure secrets in browser
+  - Step indicators built with flexbox and conditional Tailwind classes
+  - Copy to clipboard via `navigator.clipboard.writeText()` with success feedback
+  - Custom secret option requires minimum 16 characters validation
+  - Instructions section uses muted background with numbered list for clarity
+---
+
+## 2026-01-27 - US-005
+- What was implemented: Created first-run detection middleware that redirects to /setup if APP_SECRET is not configured
+- Files changed:
+  - middleware.ts (new)
+- **Learnings for future iterations:**
+  - Next.js middleware.ts must be placed at project root (next to package.json), not in app folder
+  - Use `export const config = { matcher: [...] }` to configure which paths middleware runs on
+  - Bypass paths should include /setup, /_next, /api, and static files with extensions
+  - Check env vars synchronously in middleware: `!!process.env.APP_SECRET && process.env.APP_SECRET.length > 0`
+---
+
+## 2026-01-27 - US-004
+- What was implemented: Created AppConfig service for encrypted config storage
+- Files changed:
+  - lib/appConfig.ts (new)
+- **Learnings for future iterations:**
+  - Use `prisma.appConfig.upsert()` for idempotent set operations (create or update)
+  - `hasAppSecret()` is synchronous (just checks env var), not async
+  - `getConfig()` returns null if key not found or decryption fails (graceful error handling)
+  - APP_SECRET env var must be set for any config operations to work
+---
+
+## 2026-01-27 - US-003
+- What was implemented: Created encryption utility for API keys using AES-256-GCM
+- Files changed:
+  - lib/encryption.ts (new)
+- **Learnings for future iterations:**
+  - Use PBKDF2 for key derivation from user-provided secret (100k iterations, SHA-256)
+  - AES-256-GCM requires: 12-byte IV, 16-byte auth tag, 32-byte key
+  - Store salt + IV + authTag + encrypted data together in base64 format
+  - Node.js crypto module is built-in, no external dependencies needed
+---
+
+## 2026-01-27 - US-002
+- What was implemented: Ran v2-schema database migration and fixed type errors in summarize route
+- Files changed:
+  - prisma/migrations/20260127151656_v2_schema/migration.sql (new)
+  - app/api/summarize/route.ts (fixed type errors)
+- **Learnings for future iterations:**
+  - Old code used `language`, `mode`, `source` fields that no longer exist in V2 schema
+  - Need to update existing code that references old schema fields when migrating
+  - Use `videoId` as unique identifier for summaries (not `findFirst` with multiple fields)
+  - Run `npx prisma migrate dev --name <name>` for migrations, auto-generates client
+---
+
+## 2026-01-27 - US-001
+- What was implemented: Updated Prisma schema with complete V2 database models
+- Files changed: prisma/schema.prisma
+- **Learnings for future iterations:**
+  - Project uses SQLite with Prisma ORM
+  - Prisma schema validated with `npx prisma validate`
+  - No `typecheck` script in package.json, use `npx tsc --noEmit` directly
+  - Branch naming convention: ralph/{feature-name}
+---
+
+## 2026-01-27 - US-021
+- What was implemented: Created login page UI with email/password form
+- Files changed:
+  - app/login/page.tsx (new)
+- **Learnings for future iterations:**
+  - Login page uses same Card/Input/Button patterns as setup wizard
+  - Store both `token` and `user` in localStorage on successful login
+  - Use AlertCircle icon with destructive colors for error display
+  - Form uses controlled inputs with disabled state during submission
+  - Button disabled when email/password empty or during loading
+  - Use Mail/Lock icons inside inputs with pl-10 padding
+  - Link uses Next.js Link component with href="/register"
+---
+
+## 2026-01-27 - US-033
+- What was implemented: Added responsive desktop layout with two-column split at md breakpoint
+- Files changed:
+  - app/summary/[videoUrl]/page.tsx (updated with responsive layout)
+- **Learnings for future iterations:**
+  - Desktop layout uses `flex flex-col md:flex-row md:gap-6` for responsive column switching
+  - Left column has fixed width `md:w-[400px] md:flex-shrink-0` to prevent squishing
+  - TopicEditor shown only on desktop with `hidden md:block` (placeholder save handler for US-034)
+  - Back button duplicated: one in left column for desktop, one in right column for mobile
+  - Title moved above columns for full width on both layouts
+  - `transition-all duration-300` applied to containers for smooth responsive transitions
+  - Loading state also updated with `md:max-w-md` constraints
+  - Container width increased to `max-w-5xl` to accommodate two columns
+---
+
+## 2026-01-27 - US-043
+- What was implemented: Created prompt templates settings tab with full CRUD functionality
+- Files changed:
+  - app/settings/page.tsx (added prompt templates tab implementation)
+- **Learnings for future iterations:**
+  - Prompt templates tab has two views: list view and editor view (controlled by `isCreatingTemplate` and `editingTemplate` state)
+  - Template list shows truncated content preview (first 150 chars) with "..." for longer content
+  - Default template has "Default" badge and cannot be deleted (delete button hidden)
+  - Default template name is read-only but content is editable
+  - Template editor shows available variables in info box: `{{transcript}}`, `{{language}}`, `{{detailLevel}}`
+  - Use `line-clamp-2` for multiline text truncation in template preview
+  - Cancel button closes editor and clears form state
+  - Success status auto-closes editor after 1.5 seconds via setTimeout
+  - Fetch templates when tab becomes active using useEffect with activeTab dependency
+
+---
+
+## 2026-01-27 - US-045
+- What was implemented: Created usage settings tab with full statistics display including charts and log table
+- Files changed:
+  - app/settings/page.tsx (added Usage tab with complete implementation)
+- **Learnings for future iterations:**
+  - Usage tab fetches from GET /api/usage with Authorization header
+  - Summary stats displayed in 3-column grid: total requests, credits used, tokens used
+  - Service breakdown shows progress bar proportional to totalRequests percentage
+  - Bar chart uses daily/weekly/monthly toggle with `usageChartView` state
+  - Chart displays last 14 periods maximum for readability
+  - Chart bar height calculated as `(requests / maxRequests) * 100%` percentage
+  - Format helpers: `formatServiceName()` for service display names, `formatPeriod()` for chart labels, `formatTimestamp()` for log table
+  - Log table shows 20 of 100 recent requests with responsive columns (endpoint/tokens hidden on mobile)
+  - Use `tabular-nums` class for numeric columns to align numbers properly
+  - Period format differs: daily = "Mon DD", weekly = "Week XX", monthly = "Mon YYYY"
+- Navigation auth awareness: Sidebar shows Login/Settings based on auth state, Header has responsive auth controls
+- Header component: components/header.tsx - client component with MobileSidebar + auth controls
+- Auth UI patterns: Icon-only buttons on mobile (md:hidden vs hidden md:inline-flex), truncated email display
+
+---
+
+## 2026-01-27 - US-046
+- What was implemented: Updated navigation components (sidebar and header) with auth awareness
+- Files changed:
+  - components/sidebar.tsx (added auth section with login/logout, user email, settings link)
+  - components/header.tsx (new - client component for header with auth controls)
+  - app/layout.tsx (updated to use Header component instead of inline header)
+- **Learnings for future iterations:**
+  - Sidebar now has flex-col layout with flex-1 for nav section and border-t for auth section at bottom
+  - Header extracted to separate client component since layout.tsx is server component
+  - Responsive auth controls: icon-only on mobile, text+icon on desktop
+  - User email truncated with max-w-[150px] to prevent layout issues with long emails
+  - handleLogout redirects to "/" after clearing auth state
+  - Settings link only shown when isAuthenticated is true
+  - isLoading state shown as "Loading..." text during auth state initialization
+
+---
+
+## 2026-01-27 - US-047
+- What was implemented: Created multi-stage Dockerfile for production deployment
+- Files changed:
+  - Dockerfile (rewritten with multi-stage build)
+  - next.config.ts (added standalone output mode)
+- **Learnings for future iterations:**
+  - Multi-stage Dockerfile pattern: deps → builder → runner stages for minimal production image
+  - Next.js standalone output (`output: "standalone"` in next.config.ts) required for Docker optimization
+  - bcrypt requires native build tools (python3, make, g++) during dependency install
+  - Production stage uses non-root user (nextjs:nodejs) for security
+  - Copy Prisma files (.prisma and @prisma) to production stage for database operations
+  - Set `HOSTNAME="0.0.0.0"` to listen on all interfaces in container
+  - Standalone build creates server.js for starting the app (not npm start)
+  - Include libc6-compat and sqlite in production stage for runtime needs
+
+---
+
+## 2026-01-27 - US-048
+- What was implemented: Created docker-compose.yml for easy deployment with database persistence
+- Files changed:
+  - docker-compose.yml (new)
+  - docker-entrypoint.sh (new)
+  - Dockerfile (updated with data directory and entrypoint)
+  - prisma/schema.prisma (updated to use DATABASE_URL env var)
+  - .env.example (new)
+  - .gitignore (added .env.example exception)
+- **Learnings for future iterations:**
+  - docker-compose.yml uses named volume `youtube-summarizer-data` for SQLite persistence
+  - DATABASE_URL env var allows flexible database path (local dev vs Docker)
+  - Local development uses `file:./dev.db`, Docker uses `file:/app/data/dev.db`
+  - docker-entrypoint.sh runs `prisma migrate deploy` or `prisma db push` on startup
+  - Health check uses wget to probe /api/health endpoint (alpine doesn't have curl by default)
+  - Health check: 30s interval, 10s timeout, 3 retries, 40s start period for app warmup
+  - .env.example must be excluded from .env* ignore pattern with `!.env.example`
+  - App container restarts `unless-stopped` for production reliability
+
+---
+
+## 2026-01-27 - US-049
+- What was implemented: Created health check endpoint for Docker container health monitoring
+- Files changed:
+  - app/api/health/route.ts (new)
+- **Learnings for future iterations:**
+  - Health check endpoint: GET /api/health returns `{ status: "ok", timestamp }` on success
+  - Database connectivity: Uses `prisma.$queryRaw\`SELECT 1\`` for simple connectivity check
+  - Error handling: Returns 503 with `{ status: "error", timestamp, error }` when database is unreachable
+  - Import: Use `@/lib/prisma` (not `@/lib/db`) for Prisma client
+
+---
+
+## 2026-01-27 - US-050
+- What was implemented: Created documentation structure with installation, configuration, API reference, and development guides
+- Files changed:
+  - docs/installation.md (new) - Docker and docker-compose setup instructions
+  - docs/configuration.md (new) - API key setup and user preferences guide
+  - docs/api.md (new) - Complete API endpoint reference
+  - docs/development.md (new) - Local development setup and project structure
+  - README.md (rewritten) - V2 quick start with links to docs
+- **Learnings for future iterations:**
+  - Documentation structure: docs/ folder with separate files for different concerns
+  - README.md should be concise with links to detailed docs
+  - API documentation: Include request/response examples, error codes, and auth requirements
+  - Development docs: Include project structure, available scripts, and common patterns
+  - Installation docs: Cover both Docker Compose and manual Docker build approaches
+
+---
+
+## 2026-01-27 - US-051
+- What was implemented: Created comprehensive unit tests for encryption utility functions
+- Files changed:
+  - __tests__/lib/encryption.test.ts (new - 21 tests for encrypt/decrypt functions)
+  - jest.config.js (new - Jest configuration with ts-jest preset)
+  - package.json (added jest, @types/jest, ts-jest dependencies and test script)
+- **Learnings for future iterations:**
+  - Jest uses ts-jest preset for TypeScript support (no babel needed)
+  - Path aliases work in tests via moduleNameMapper in jest.config.js
+  - Test structure: describe blocks for categories (roundtrip, error handling, security)
+  - Encryption tests cover: roundtrip, edge cases (long strings, unicode, special chars), invalid input, wrong secret, tampered data
+  - Use `toThrow('message')` for testing specific error messages
+  - Use `as unknown as string` for testing null/undefined inputs in TypeScript
+  - Tests verify security properties: no plaintext leakage, proper ciphertext length
+
+---
+
+## 2026-01-27 20:20 - US-052
+Thread: https://ampcode.com/threads/$AMP_CURRENT_THREAD_ID
+- What was implemented: Added unit tests for topic boundary detection and chunking fallback; fixed character-based chunking loop termination to avoid infinite overlap loops
+- Files changed:
+  - __tests__/lib/chunking.test.ts (new)
+  - lib/chunking.ts (prevent infinite loop in chunkByCharacters)
+- **Learnings for future iterations:**
+  - Chunking overlap needs a forward-progress guard; stop when endPos hits text length
+  - Jest may require higher Node heap in this environment; `NODE_OPTIONS=--max-old-space-size=8192` helped run the full suite
+---
+
+## 2026-01-27 - US-053
+- What was implemented: Created comprehensive unit tests for auth utility functions
+- Files changed:
+  - __tests__/lib/auth.test.ts (new - 31 tests for hashPassword, verifyPassword, generateToken, verifyToken)
+- **Learnings for future iterations:**
+  - bcrypt hashes always start with $2a$ or $2b$ version identifier - use regex to verify hash format
+  - Password hashing is async (uses bcrypt.hash/bcrypt.compare), token generation is sync (jwt.sign/jwt.verify)
+  - Test APP_SECRET env manipulation: store original, delete/change, restore in afterAll
+  - JWT tampering tests: split token by '.', modify base64url payload, rejoin - verifyToken should return null
+  - verifyToken catches all errors internally and returns null (not throws), so test for null on invalid input
+  - bcrypt with 12 salt rounds takes ~170-350ms per hash operation - budget time for test suite
+---
+
+## 2026-01-27 - US-054
+- What was implemented: Created integration tests for auth API endpoints (register and login)
+- Files changed:
+  - __tests__/api/auth.test.ts (new - 27 tests for /api/auth/register and /api/auth/login)
+- **Learnings for future iterations:**
+  - API integration tests: Use jest.mock('@/lib/prisma') to mock Prisma client without database
+  - Next.js API testing: Create NextRequest with JSON body via `new NextRequest(url, { method, headers, body })`
+  - Mock Prisma pattern: `(mockedPrisma.user.findUnique as jest.Mock).mockResolvedValue(...)` for async mocks
+  - Test categories: validation tests (400), success tests (200), conflict tests (409), auth failure tests (401), database error tests (500)
+  - Security testing: Verify same error message for non-existent user and wrong password (no user enumeration)
+  - JWT verification in tests: Import verifyToken to validate tokens returned by API endpoints
+  - Console.error in tests: Expected when testing error handlers - not a test failure
+  - API tests go in __tests__/api/ directory, mirroring app/api/ structure
+---
+
+## 2026-01-27 - US-055
+- What was implemented: Created comprehensive integration tests for the summarize API endpoint
+- Files changed:
+  - __tests__/api/summarize.test.ts (new - 26 tests for /api/summarize GET and POST)
+- **Learnings for future iterations:**
+  - Summarize API uses streaming responses; parse with ReadableStream reader and TextDecoder
+  - Helper `parseStreamResponse()` buffers partial JSON lines and parses complete events
+  - Mock multiple dependencies: prisma, transcript, llmChain, topicExtraction, usageLogger
+  - TranscriptError mock: Create error class with `code` property in mock factory
+  - Streaming tests: Response headers include `Content-Type: text/event-stream`, `Cache-Control: no-cache`, `Connection: keep-alive`
+  - Progress events have `type: "progress"` with `stage` field for the 4 stages
+  - Complete events have `type: "complete"` with full `summary` object including `source: "cache"` or `"generated"`
+  - Video ID extraction: Use valid 11-character YouTube video IDs in test URLs (e.g., `dQw4w9WgXcQ`)
+  - URL format tests: Standard watch?v=, shorts/, embed/, youtu.be/ formats all extract the same videoId
+  - Topic extraction only runs when `hasTimestamps && videoDurationMs > 0`; gracefully continues if extraction fails
+---
+
+## 2026-01-27 - US-056
+- What was implemented: Created comprehensive E2E tests for the setup wizard flow
+- Files changed:
+  - e2e/setup-wizard.spec.ts (new - 19 tests for setup wizard)
+  - playwright.config.ts (new - Playwright configuration)
+  - package.json (added @playwright/test, test:e2e, test:e2e:ui scripts)
+- **Learnings for future iterations:**
+  - E2E tests go in `e2e/` directory with `.spec.ts` extension
+  - Use `page.route()` to intercept and mock API calls in Playwright tests
+  - Mock API responses with `route.fulfill({ status, contentType, body })`
+  - For clipboard tests, grant permissions: `context.grantPermissions(["clipboard-read", "clipboard-write"])`
+  - Wait for async state updates: `await expect(input).not.toHaveValue("", { timeout: 5000 })`
+  - Use `{ exact: true }` for getByText when multiple elements contain similar text
+  - Test selectors: `page.locator('input[readonly]')` for readonly inputs
+  - Playwright webServer config starts dev server automatically for tests
+  - Test wizard navigation with skip/next/back buttons to cover all paths
+  - API mock pattern: Check `apiKey.startsWith("valid-")` vs `"invalid-"` to simulate success/failure
+---
+
+## 2026-01-27 - US-057
+- What was implemented: Created comprehensive E2E tests for the summary generation flow
+- Files changed:
+  - e2e/summary.spec.ts (new - 19 tests covering summary generation)
+- **Learnings for future iterations:**
+  - E2E streaming response mock: Use `createStreamingResponse()` helper to build mock stream events
+  - Streaming response format: Each line is JSON with `{ type: "progress"|"complete"|"error", ... }`
+  - E2E strict mode: Use `{ exact: true }` for getByText when multiple elements contain similar text
+  - E2E progress stages: Fast mocked responses may skip loading state; use `Promise.race()` to catch either loading or final state
+  - Summary page URL encoding: Use `btoa(url).replace(/\+/g, "-").replace(/\//g, "_").replace(/=+$/g, "")` for URL-safe base64
+  - E2E download test: Use `page.waitForEvent("download")` to verify file downloads
+  - E2E error handling: Mock 400 responses return JSON error, streaming errors have `type: "error"` event
+  - Timeline visibility test: Use `page.locator('[aria-label*="TopicTitle"]')` to find topic segments
+---

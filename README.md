@@ -1,277 +1,169 @@
-# NEW VERSION -> Python Version is in the branch "old_python_version"
+# YouTube Summarizer v2
 
-# YouTube AI Summarizer
+[![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](https://opensource.org/licenses/MIT)
+[![Node.js 20+](https://img.shields.io/badge/Node.js-20%2B-green.svg)](https://nodejs.org/)
 
-A modern Next.js-based tool for AI-powered YouTube video summarization. This application allows you to generate concise summaries of YouTube videos using different AI models, with support for multiple languages and summary styles.
+![Landing Page](landing.png)
 
-## 🎯 Features
+**AI-powered YouTube video summarization with smart chapter detection, multi-language support, and clickable timestamps.**
 
-- **Multiple AI Models**: Choose your preferred AI model for summarization:
-  - Google Gemini 2.0 Flash (Fast and efficient)
-  - Groq with Llama 70B (High accuracy)
-  - GPT-4o-mini (Balanced performance)
-- **Flexible API Key Requirements**:
-  - Only one API key is required to start using the application
-  - Models become available based on the API keys you provide
-  - Mix and match different models as needed
-- **Multilingual Support**:
-  - Generate summaries in English and German
-  - Clean formatting in both languages
-  - Proper handling of language-specific structures
-- **Flexible Summary Modes**:
-  - Video Summary: Concise, structured overview
-  - Podcast Style: More narrative, detailed analysis
-- **Smart History System**:
-  - Automatic storage in SQLite database
-  - Quick access to previous summaries
-  - Unique constraint handling for video/language combinations
-- **Modern UI/UX**:
-  - Clean, responsive design with Tailwind CSS
-  - Automatic dark/light mode
-  - Progress indicators for summarization
-  - Beautiful markdown rendering
-  - Mobile-friendly interface
+Transform lengthy YouTube videos into structured, digestible summaries. YouTube Summarizer v2 automatically detects chapters and topics, generates summaries in your preferred language, and provides clickable timestamps that jump directly to video positions.
 
-## 📱 Interface & Workflow
+## Features
 
-### 1. Home Screen
-![Home Screen](1home.png)
-The main interface where users can input a YouTube URL and select their preferred language, summary type, and AI model.
+- **Smart Chapter Detection** - Automatically identifies chapters and topics with precise timestamps
+- **Multi-Language Support** - Generate summaries in English, German, French, Spanish, or Italian
+- **Clickable Timestamps** - Jump directly to any video position from the summary
+- **Visual Chapter Timeline** - See video structure at a glance with an interactive timeline
+- **Full Transcript View** - Access the complete transcript with clickable timestamps
+- **Markdown Export** - Download summaries as markdown files
+- **Summary Caching** - Summaries are cached per-user, per-video for instant access
+- **Permanent History** - All summaries are archived and searchable
 
-### 2. Generation Process
-![Generating Summary](2generating-summary.png)
-Real-time progress tracking shows the current status of your summary generation, including processing stages and completion percentage.
+## Prerequisites
 
-### 3. Summary View
-![Video Summary](3video-summary.png)
-The generated summary is displayed in a clean, well-structured format with an overview and key points from the video.
+- **Node.js 20+** - [Download](https://nodejs.org/)
+- **Supadata Account** - For YouTube transcript extraction
+  - Sign up at [supadata.ai](https://supadata.ai/?ref=devrico003) (referral link)
+  - Free tier: 100 credits/month
+- **Z.AI Account** - For AI summarization (GLM-4.7)
+  - Sign up at [z.ai](https://z.ai/subscribe?ic=D7NHC27OHD) (referral link)
+  - Pricing: Coding Plan from $3/month or API on-demand
 
-### 4. History Dashboard
-![Summary History Dashboard](4summary-history-dashboard.png)
-Access your previously generated summaries through the history dashboard, showing video titles and generation dates.
+> **Disclosure**: The links above are referral links. Using them helps support this project at no extra cost to you.
 
-### 5. Detailed History View
-![Summary History Detail](5summary-history.png)
-View complete details of past summaries, including full analysis and key points.
+## Installation
 
-## 🚀 Getting Started
+### Without Docker
 
-### Prerequisites
-
-- Node.js 15.x or higher (for local installation)
-- npm package manager (for local installation)
-- Docker (optional, for containerized installation)
-- API keys for the AI services
-
-### Installation
-
-#### Option 1: Local Installation
-
-1. Clone the repository:
 ```bash
-git clone [repository-url]
-cd youtube-summarizer
-```
+# 1. Clone the repository
+git clone https://github.com/DevRico003/youtube_summarizer.git
+cd youtube_summarizer
 
-2. Install dependencies:
-```bash
+# 2. Install dependencies
 npm install
-# or
-yarn install
-```
 
-3. Create a `.env` file in the root directory:
-```env
-# You only need to add the API keys for the models you want to use
-# At least one API key is required
-GEMINI_API_KEY="your-gemini-api-key"
-GROQ_API_KEY="your-groq-api-key"
-OPENAI_API_KEY="your-openai-api-key"
-```
+# 3. Configure environment
+cp .env.example .env
 
-4. Set up the database:
-```bash
+# Generate APP_SECRET and add to .env:
+openssl rand -hex 32
+
+# 4. Setup database
 npx prisma generate
 npx prisma db push
-```
 
-5. Start the development server:
-```bash
+# 5. Run development server
 npm run dev
-# or
-yarn dev
 ```
 
-#### Option 2: Docker Installation
-
-1. Clone the repository:
+For production:
 ```bash
-git clone [repository-url]
-cd youtube-summarizer
+npm run build
+npm start
 ```
 
-2. Build the Docker image:
+### With Docker
+
 ```bash
-docker build -t youtube-summarizer .
+# 1. Clone the repository
+git clone https://github.com/DevRico003/youtube_summarizer.git
+cd youtube_summarizer
+
+# 2. Configure environment
+cp .env.example .env
+
+# Generate APP_SECRET and add to .env:
+openssl rand -hex 32
+
+# 3. Run with docker-compose
+docker-compose up -d
 ```
 
-3. Run the container:
-```bash
-docker run -d \
-  -p 3000:3000 \
-  -v ./prisma:/app/prisma \
-  -e GEMINI_API_KEY="your-key" \
-  -e GROQ_API_KEY="your-key" \
-  -e OPENAI_API_KEY="your-key" \
-  youtube-summarizer
-```
+The application will be available at `http://localhost:3000`.
 
-Note for Docker installation:
-- The `-v ./prisma:/app/prisma` flag creates a volume for the SQLite database
-- You only need to provide the API keys for the models you want to use
-- At least one API key is required
-- The application will be available at http://localhost:3000
+## Environment Variables
 
-The application will be available at [http://localhost:3000](http://localhost:3000)
+| Variable | Required | Description |
+|----------|----------|-------------|
+| `APP_SECRET` | Yes | Secret key for JWT signing. Generate with `openssl rand -hex 32` |
+| `DATABASE_URL` | No | SQLite database path. Default: `file:./dev.db` (auto-configured for Docker) |
 
-## 🔧 Configuration
+## User Guide
 
-### API Key Configuration
+### 1. Registration
+Create an account with your email and password. Each user has their own isolated data and API keys.
+![Login](login.png)
 
-The application is designed to work with partial API key configurations:
+### 2. Setup Wizard
+On first login, the setup wizard guides you through configuring:
+1. **Supadata API Key** - For YouTube transcript extraction
+2. **Z.AI API Key** - For AI-powered summarization
+![Setup Wizard - Supadata](wizard1.png)
+![Setup Wizard - Z.AI](wizard2.png)
 
-- You only need to provide API keys for the models you want to use
-- The UI will automatically show which models are available based on your API keys
-- You can start with just one API key and add more later
-- Models without API keys will be disabled in the interface
+### 3. Summarizing a Video
+1. Paste a YouTube URL into the input field
+2. Select your preferred summary language
+3. Click "Summarize"
+4. Wait for the AI to process the video
+![URL Input](start.png)
 
-### Database Setup
-The application uses Prisma with SQLite for data persistence. The configuration is defined in `prisma/schema.prisma`:
-```prisma
-generator client {
-  provider = "prisma-client-js"
-}
+### 4. Viewing Summaries
+- **Compact View**: Chapters are collapsible for easy navigation
+- **Full Text View**: See the complete summary with all details
+- **Timeline**: Visual representation of video chapters
+![Compact Summary](2.png)
 
-datasource db {
-  provider = "sqlite"
-  url      = "file:./dev.db"
-}
-```
+### 5. Using Timestamps
+Click any timestamp in the summary or transcript to open the video at that exact position.
 
-To reset the database if you encounter any issues:
-```bash
-# Remove the existing database
-rm prisma/dev.db
-# Regenerate the database
-npx prisma generate
-npx prisma db push
-```
+### 6. Exporting
+Click the download button to export your summary as a markdown file.
 
-### Obtaining API Keys
+### 7. Settings
+Update your API keys anytime from the Settings page.
 
-1. **Google Gemini API Key** (Good starting choice - free tier available):
-   - Visit [Google AI Studio](https://aistudio.google.com/app/apikey)
-   - Create a new project if needed
-   - Generate an API key
-   - Free tier available with generous limits
+## Tech Stack
 
-2. **Groq API Key**:
-   - Go to [Groq Cloud](https://console.groq.com/)
-   - Sign up for an account
-   - Navigate to API settings
-   - Generate a new API key
+- **Framework**: [Next.js 15](https://nextjs.org/) (React 19)
+- **Language**: [TypeScript](https://www.typescriptlang.org/)
+- **Styling**: [Tailwind CSS](https://tailwindcss.com/)
+- **Database**: [Prisma](https://www.prisma.io/) + SQLite
+- **Animations**: [Framer Motion](https://www.framer.com/motion/)
+- **LLM**: [Z.AI GLM-4.7](https://z.ai/subscribe?ic=D7NHC27OHD)
+- **Transcripts**: [Supadata API](https://supadata.ai/?ref=devrico003)
 
-3. **OpenAI API Key**:
-   - Visit [OpenAI Platform](https://platform.openai.com/api-keys)
-   - Create an account or log in
-   - Go to API settings
-   - Generate a new API key
-   - Note: This service requires a paid subscription
+## Cloud Deployment
 
-## 🆕 Technical Highlights
+### General Notes
+- Ensure `APP_SECRET` is set as an environment variable
+- SQLite database requires persistent volume storage
+- Container exposes port 3000
 
-### Recent Migration from Python
-- Previously built with Python and Streamlit
-- Completely rebuilt using Next.js for better performance
-- New architecture using the App Router for improved routing
-- Enhanced state management and real-time updates
+### VPS (Docker)
+1. Clone repository on your server
+2. Configure `.env` with `APP_SECRET`
+3. Run `docker-compose up -d`
+4. Configure reverse proxy (nginx/Caddy) for HTTPS
 
-### Performance Improvements
-- Streaming responses for real-time progress updates
-- Efficient chunk processing for long videos
-- Smart caching of summaries
-- Optimized database queries
+## v1 vs v2
 
-### Modern Tech Stack
-- **Frontend**: Next.js 15+, React, TypeScript
-- **Styling**: Tailwind CSS, shadcn/ui components
-- **Database**: Prisma with SQLite
-- **AI Integration**: Multiple model support
-- **API**: Built-in API routes with streaming support
+YouTube Summarizer v2 is a complete rewrite focused on simplicity:
 
-## 📚 Usage
+- **Streamlined UX** - Removed preferences and templates for a cleaner flow
+- **Transcript extraction & creation** - Transcript extraction with timestamps and if no timestamps available supadata does analyse the video and create them
+- **Setup Wizard** - Guided API key configuration
+- **Per-User Isolation** - Each user manages their own API keys and data
+- **New LLM** - Z.AI GLM-4.7 as primary model (more providers planned)
 
-1. Visit the homepage
-2. Paste a YouTube URL
-3. Select your preferred:
-   - Language (English/German)
-   - Summary mode (Video/Podcast)
-   - AI model
-4. Click "Generate Summary"
-5. Watch the real-time progress
-6. View your formatted summary
-7. Access previous summaries in the history section
+## Contributing
 
-## 🤝 Contributing
+Contributions are welcome! Feel free to:
+- Open issues for bugs or feature requests
+- Submit pull requests
 
-Contributions are welcome! Please feel free to submit a Pull Request.
+## License
 
-## 📝 License
-
-This project is licensed under the MIT License - see the LICENSE file for details.
-
-## 🚨 Troubleshooting
-
-### Database Issues
-
-If you encounter database errors like "database disk image is malformed", follow these steps:
-
-1. Stop the development server
-2. Delete the corrupted database:
-   ```bash
-   rm prisma/dev.db
-   ```
-3. Regenerate the database:
-   ```bash
-   npx prisma generate
-   npx prisma db push
-   ```
-4. Restart the development server:
-   ```bash
-   npm run dev
-   ```
-
-### API Errors
-
-If you encounter API errors:
-
-1. Check that all environment variables are properly set in `.env`
-2. Verify that your API keys are valid and have sufficient credits
-3. For history-related errors, try resetting the database as described above
-
-### Common Issues
-
-1. **"Invalid API Key" errors**:
-   - Double-check your API keys in `.env`
-   - Make sure there are no extra spaces or quotes
-   - Verify the keys are active in their respective platforms
-
-2. **"Failed to fetch summaries" error**:
-   - Usually indicates a database issue
-   - Follow the database reset steps above
-   - Check if your database has proper read/write permissions
-
-3. **Performance issues**:
-   - Long videos may take more time to process
-   - Consider using Gemini model for faster processing
-   - Check your network connection
+This project is licensed under the MIT License - see the [LICENSE](LICENSE) file for details.

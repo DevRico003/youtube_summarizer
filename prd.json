@@ -1,0 +1,953 @@
+{
+  "project": "YouTube Summarizer V2",
+  "branchName": "ralph/youtube-summarizer-v2",
+  "description": "Complete reconceptualization with Supadata SDK for transcripts, GLM-4.7 as primary LLM, full timeline experience, responsive UI redesign, and Docker deployment",
+  "userStories": [
+    {
+      "id": "US-001",
+      "title": "Create new database schema",
+      "description": "As a developer, I need the Prisma schema updated with all new tables for the V2 architecture.",
+      "acceptanceCriteria": [
+        "Drop existing Summary model from schema",
+        "Add User model (id, email, passwordHash, createdAt, updatedAt)",
+        "Add Summary model (id, videoId @unique, title, content, transcript, hasTimestamps Boolean, createdAt, updatedAt)",
+        "Add Topic model (id, summaryId, title, startMs Int, endMs Int, order Int, createdAt, updatedAt) with relation to Summary",
+        "Add UserTopicEdit model (id, userId, summaryId, topicId, customTitle, customStartMs, customEndMs) with relations",
+        "Add UserPreference model (id, userId @unique, language, detailLevel Int, preferredModel, customPrompt Text)",
+        "Add ApiUsageLog model (id, userId, service, endpoint, creditsUsed Float, tokensUsed Int, timestamp)",
+        "Add AppConfig model (id, key @unique, encryptedValue)",
+        "Typecheck passes"
+      ],
+      "priority": 1,
+      "passes": true,
+      "notes": ""
+    },
+    {
+      "id": "US-002",
+      "title": "Run database migration",
+      "description": "As a developer, I need to run the Prisma migration to apply the new schema.",
+      "acceptanceCriteria": [
+        "Delete existing dev.db file (clean slate)",
+        "Run prisma migrate dev with migration name 'v2-schema'",
+        "Migration completes without errors",
+        "Run prisma generate to update client",
+        "Typecheck passes"
+      ],
+      "priority": 2,
+      "passes": true,
+      "notes": ""
+    },
+    {
+      "id": "US-003",
+      "title": "Add encryption utility for API keys",
+      "description": "As a developer, I need a utility to encrypt/decrypt API keys with app secret.",
+      "acceptanceCriteria": [
+        "Create lib/encryption.ts",
+        "Implement encrypt(plaintext: string, secret: string): string using AES-256-GCM",
+        "Implement decrypt(ciphertext: string, secret: string): string",
+        "Handle errors gracefully (invalid ciphertext, wrong secret)",
+        "Export functions for use in other modules",
+        "Typecheck passes"
+      ],
+      "priority": 3,
+      "passes": true,
+      "notes": ""
+    },
+    {
+      "id": "US-004",
+      "title": "Create AppConfig service for encrypted storage",
+      "description": "As a developer, I need a service to get/set encrypted config values in the database.",
+      "acceptanceCriteria": [
+        "Create lib/appConfig.ts",
+        "Implement getConfig(key: string): Promise<string | null> that decrypts value",
+        "Implement setConfig(key: string, value: string): Promise<void> that encrypts before storing",
+        "Implement hasAppSecret(): Promise<boolean> to check if app is configured",
+        "Use APP_SECRET env var as encryption key",
+        "Typecheck passes"
+      ],
+      "priority": 4,
+      "passes": true,
+      "notes": ""
+    },
+    {
+      "id": "US-005",
+      "title": "Create first-run detection middleware",
+      "description": "As a developer, I need middleware to detect first run and redirect to setup wizard.",
+      "acceptanceCriteria": [
+        "Create middleware.ts in app root",
+        "Check if APP_SECRET env var exists",
+        "If not configured, redirect all routes except /setup to /setup",
+        "Allow static assets and API routes to pass through",
+        "Typecheck passes"
+      ],
+      "priority": 5,
+      "passes": true,
+      "notes": ""
+    },
+    {
+      "id": "US-006",
+      "title": "Create setup wizard page - Step 1 App Secret",
+      "description": "As a new user, I want Step 1 of the setup wizard to generate/set the app secret.",
+      "acceptanceCriteria": [
+        "Create app/setup/page.tsx with multi-step wizard UI",
+        "Step 1: Display generated random secret or allow custom input",
+        "Button to copy secret to clipboard",
+        "Instructions to add APP_SECRET to .env file",
+        "Next button to proceed to Step 2",
+        "Typecheck passes",
+        "Verify in browser using agent-browser skill"
+      ],
+      "priority": 6,
+      "passes": true,
+      "notes": ""
+    },
+    {
+      "id": "US-007",
+      "title": "Create setup wizard - Step 2 Supadata API key",
+      "description": "As a new user, I want Step 2 of the setup wizard to configure Supadata API key.",
+      "acceptanceCriteria": [
+        "Step 2: Input field for Supadata API key",
+        "Test button that validates key by making a test API call",
+        "Show success/error status after validation",
+        "Skip button (key is optional)",
+        "Save encrypted key to AppConfig on Next",
+        "Typecheck passes",
+        "Verify in browser using agent-browser skill"
+      ],
+      "priority": 7,
+      "passes": true,
+      "notes": ""
+    },
+    {
+      "id": "US-008",
+      "title": "Create setup wizard - Step 3 Z.AI API key",
+      "description": "As a new user, I want Step 3 of the setup wizard to configure Z.AI (GLM-4.7) API key.",
+      "acceptanceCriteria": [
+        "Step 3: Input field for Z.AI API key",
+        "Test button that validates key with GLM-4.7 API",
+        "Show success/error status after validation",
+        "Skip button (key is optional)",
+        "Save encrypted key to AppConfig on Next",
+        "Typecheck passes",
+        "Verify in browser using agent-browser skill"
+      ],
+      "priority": 8,
+      "passes": true,
+      "notes": ""
+    },
+    {
+      "id": "US-009",
+      "title": "Create setup wizard - Step 4 Fallback models",
+      "description": "As a new user, I want Step 4 of the setup wizard to configure fallback model API keys.",
+      "acceptanceCriteria": [
+        "Step 4: Input fields for Gemini, Groq, OpenAI API keys",
+        "Test button for each key",
+        "All keys optional with Skip button",
+        "Save all encrypted keys to AppConfig",
+        "Finish button redirects to home page",
+        "Typecheck passes",
+        "Verify in browser using agent-browser skill"
+      ],
+      "priority": 9,
+      "passes": true,
+      "notes": ""
+    },
+    {
+      "id": "US-010",
+      "title": "Install and configure Supadata SDK",
+      "description": "As a developer, I need the Supadata SDK installed and configured.",
+      "acceptanceCriteria": [
+        "Run npm install @supadata/js",
+        "Create lib/supadata.ts",
+        "Initialize Supadata client with API key from AppConfig",
+        "Export getSupadataClient() function",
+        "Handle missing API key gracefully",
+        "Typecheck passes"
+      ],
+      "priority": 10,
+      "passes": true,
+      "notes": ""
+    },
+    {
+      "id": "US-011",
+      "title": "Implement transcript fetching with Supadata",
+      "description": "As a user, I want transcripts fetched via Supadata with cost-efficient fallback.",
+      "acceptanceCriteria": [
+        "Create lib/transcript.ts",
+        "Implement fetchTranscript(videoUrl: string) function",
+        "Try mode='native' first (1 credit)",
+        "On failure, fallback to mode='auto' (generates with AI)",
+        "Request with text=false to get timestamps",
+        "Return structured { content, lang, availableLangs, hasTimestamps }",
+        "Typecheck passes"
+      ],
+      "priority": 11,
+      "passes": true,
+      "notes": ""
+    },
+    {
+      "id": "US-012",
+      "title": "Add API usage logging",
+      "description": "As a developer, I need API calls logged to the database for usage tracking.",
+      "acceptanceCriteria": [
+        "Create lib/usageLogger.ts",
+        "Implement logApiUsage(userId, service, endpoint, creditsUsed, tokensUsed) function",
+        "Save to ApiUsageLog table with timestamp",
+        "Handle null userId for unauthenticated requests",
+        "Typecheck passes"
+      ],
+      "priority": 12,
+      "passes": true,
+      "notes": ""
+    },
+    {
+      "id": "US-013",
+      "title": "Configure GLM-4.7 client",
+      "description": "As a developer, I need the GLM-4.7 client configured using OpenAI SDK.",
+      "acceptanceCriteria": [
+        "Create lib/glm.ts",
+        "Initialize OpenAI client with baseURL: https://api.z.ai/api/paas/v4/",
+        "Get API key from AppConfig",
+        "Export getGlmClient() function",
+        "Handle missing API key gracefully",
+        "Typecheck passes"
+      ],
+      "priority": 13,
+      "passes": true,
+      "notes": ""
+    },
+    {
+      "id": "US-014",
+      "title": "Implement model fallback chain",
+      "description": "As a user, I want automatic fallback to other models if primary fails.",
+      "acceptanceCriteria": [
+        "Create lib/llmChain.ts",
+        "Implement getAvailableModels() that checks which API keys are configured",
+        "Implement callWithFallback(prompt, options) that tries GLM-4.7 first",
+        "On failure, try Gemini → Groq → GPT-4o-mini in order",
+        "Return { response, modelUsed } on success",
+        "Throw error if all models fail",
+        "Typecheck passes"
+      ],
+      "priority": 14,
+      "passes": true,
+      "notes": ""
+    },
+    {
+      "id": "US-015",
+      "title": "Implement smart chunking with topic detection",
+      "description": "As a developer, I need smart chunking that splits at topic boundaries.",
+      "acceptanceCriteria": [
+        "Create lib/chunking.ts",
+        "Implement detectTopicBoundaries(segments) using time gaps (>3s) and keywords",
+        "Keywords: 'next topic', 'moving on', 'let's talk about', 'another thing'",
+        "Implement chunkTranscript(segments, hasTimestamps) function",
+        "When hasTimestamps=true, chunk at boundaries",
+        "When hasTimestamps=false, fall back to 7000 char chunks with 1000 overlap",
+        "Typecheck passes"
+      ],
+      "priority": 15,
+      "passes": true,
+      "notes": ""
+    },
+    {
+      "id": "US-016",
+      "title": "Implement topic extraction from summary",
+      "description": "As a user, I want the AI to identify topics with timestamp ranges.",
+      "acceptanceCriteria": [
+        "Create lib/topicExtraction.ts",
+        "Implement extractTopics(transcript, summary, videoDuration) function",
+        "Prompt LLM to identify 5-15 key topics with start/end timestamps",
+        "Parse LLM JSON response into Topic array",
+        "Validate: topics must be contiguous, no gaps, no overlaps",
+        "Adjust boundaries if needed to enforce contiguity",
+        "Typecheck passes"
+      ],
+      "priority": 16,
+      "passes": true,
+      "notes": ""
+    },
+    {
+      "id": "US-017",
+      "title": "Create new summarize API endpoint",
+      "description": "As a developer, I need the summarize API endpoint rewritten for V2.",
+      "acceptanceCriteria": [
+        "Rewrite app/api/summarize/route.ts",
+        "Accept POST with { url, detailLevel }",
+        "Use Supadata for transcript",
+        "Use smart chunking",
+        "Use LLM fallback chain for summary",
+        "Extract topics from summary",
+        "Save Summary and Topics to database",
+        "Return streaming progress events",
+        "Typecheck passes"
+      ],
+      "priority": 17,
+      "passes": true,
+      "notes": ""
+    },
+    {
+      "id": "US-018",
+      "title": "Install authentication dependencies",
+      "description": "As a developer, I need auth dependencies installed.",
+      "acceptanceCriteria": [
+        "Run npm install bcrypt jsonwebtoken",
+        "Run npm install -D @types/bcrypt @types/jsonwebtoken",
+        "Verify packages in package.json",
+        "Typecheck passes"
+      ],
+      "priority": 18,
+      "passes": true,
+      "notes": ""
+    },
+    {
+      "id": "US-019",
+      "title": "Create auth utility functions",
+      "description": "As a developer, I need utility functions for password hashing and JWT.",
+      "acceptanceCriteria": [
+        "Create lib/auth.ts",
+        "Implement hashPassword(password: string): Promise<string> using bcrypt",
+        "Implement verifyPassword(password, hash): Promise<boolean>",
+        "Implement generateToken(userId: string): string using JWT",
+        "Implement verifyToken(token: string): { userId: string } | null",
+        "Use APP_SECRET as JWT secret",
+        "Typecheck passes"
+      ],
+      "priority": 19,
+      "passes": true,
+      "notes": ""
+    },
+    {
+      "id": "US-020",
+      "title": "Create auth API endpoints",
+      "description": "As a user, I want API endpoints for registration and login.",
+      "acceptanceCriteria": [
+        "Create app/api/auth/register/route.ts - POST { email, password }",
+        "Create app/api/auth/login/route.ts - POST { email, password }",
+        "Register: hash password, create User, return JWT",
+        "Login: verify password, return JWT",
+        "Return appropriate error messages for invalid credentials",
+        "Typecheck passes"
+      ],
+      "priority": 20,
+      "passes": true,
+      "notes": ""
+    },
+    {
+      "id": "US-021",
+      "title": "Create login page UI",
+      "description": "As a user, I want a login page to sign into my account.",
+      "acceptanceCriteria": [
+        "Create app/login/page.tsx",
+        "Email and password input fields",
+        "Login button that calls /api/auth/login",
+        "Store JWT in localStorage on success",
+        "Redirect to home page on success",
+        "Show error message on failure",
+        "Link to registration page",
+        "Typecheck passes",
+        "Verify in browser using agent-browser skill"
+      ],
+      "priority": 21,
+      "passes": true,
+      "notes": ""
+    },
+    {
+      "id": "US-022",
+      "title": "Create registration page UI",
+      "description": "As a user, I want a registration page to create an account.",
+      "acceptanceCriteria": [
+        "Create app/register/page.tsx",
+        "Email and password input fields with confirmation",
+        "Register button that calls /api/auth/register",
+        "Store JWT in localStorage on success",
+        "Redirect to home page on success",
+        "Show error message on failure",
+        "Link to login page",
+        "Typecheck passes",
+        "Verify in browser using agent-browser skill"
+      ],
+      "priority": 22,
+      "passes": true,
+      "notes": ""
+    },
+    {
+      "id": "US-023",
+      "title": "Create auth context provider",
+      "description": "As a developer, I need a React context for auth state management.",
+      "acceptanceCriteria": [
+        "Create contexts/AuthContext.tsx",
+        "Provide user state, login, logout, isAuthenticated",
+        "Load user from localStorage JWT on mount",
+        "Wrap app in AuthProvider in layout.tsx",
+        "Typecheck passes"
+      ],
+      "priority": 23,
+      "passes": true,
+      "notes": ""
+    },
+    {
+      "id": "US-024",
+      "title": "Create Timeline component",
+      "description": "As a user, I want a visual timeline showing topics.",
+      "acceptanceCriteria": [
+        "Create components/Timeline.tsx",
+        "Accept topics array and videoDuration props",
+        "Render colored segments proportional to duration",
+        "Show topic title and time range on hover",
+        "Click opens YouTube at timestamp (new tab)",
+        "Responsive width scaling",
+        "Typecheck passes",
+        "Verify in browser using agent-browser skill"
+      ],
+      "priority": 24,
+      "passes": true,
+      "notes": ""
+    },
+    {
+      "id": "US-025",
+      "title": "Create ChapterLinks component",
+      "description": "As a user, I want clickable chapter links in the summary.",
+      "acceptanceCriteria": [
+        "Create components/ChapterLinks.tsx",
+        "Accept topics array and videoId props",
+        "Display list of topic titles with formatted timestamps",
+        "Generate YouTube links: youtube.com/watch?v={id}&t={seconds}s",
+        "Links open in new tab",
+        "Typecheck passes",
+        "Verify in browser using agent-browser skill"
+      ],
+      "priority": 25,
+      "passes": true,
+      "notes": ""
+    },
+    {
+      "id": "US-026",
+      "title": "Create TopicEditor component",
+      "description": "As a user, I want to edit topic titles and boundaries.",
+      "acceptanceCriteria": [
+        "Create components/TopicEditor.tsx",
+        "Display topics with editable title (double-click to edit)",
+        "Draggable handles for start/end boundaries",
+        "Enforce contiguous constraint (boundaries snap to neighbors)",
+        "Accept onSave callback for persisting changes",
+        "Revert button to reset to original",
+        "Typecheck passes",
+        "Verify in browser using agent-browser skill"
+      ],
+      "priority": 26,
+      "passes": true,
+      "notes": ""
+    },
+    {
+      "id": "US-027",
+      "title": "Create API for saving user topic edits",
+      "description": "As a user, I want my topic edits saved to my account.",
+      "acceptanceCriteria": [
+        "Create app/api/topics/edit/route.ts",
+        "POST { summaryId, topics } with JWT auth",
+        "Save/update UserTopicEdit records for authenticated user",
+        "GET returns user's custom topics for a summary",
+        "Return original topics if no user edits exist",
+        "Typecheck passes"
+      ],
+      "priority": 27,
+      "passes": true,
+      "notes": ""
+    },
+    {
+      "id": "US-028",
+      "title": "Create DetailSlider component",
+      "description": "As a user, I want a slider to control summary detail level.",
+      "acceptanceCriteria": [
+        "Create components/DetailSlider.tsx",
+        "Slider with 5 levels: Brief, Concise, Balanced, Detailed, Comprehensive",
+        "Show current level label",
+        "Accept value and onChange props",
+        "Typecheck passes",
+        "Verify in browser using agent-browser skill"
+      ],
+      "priority": 28,
+      "passes": true,
+      "notes": ""
+    },
+    {
+      "id": "US-029",
+      "title": "Create ModelSelector component with thinking mode",
+      "description": "As a user, I want to select the AI model and enable thinking mode.",
+      "acceptanceCriteria": [
+        "Update components/ModelSelector.tsx",
+        "Show available models based on configured keys",
+        "Green/red status indicator per model",
+        "GLM-4.7 shows 'Thinking Mode' toggle when selected",
+        "Model description tooltips",
+        "Accept value, onChange, thinkingMode, onThinkingModeChange props",
+        "Typecheck passes",
+        "Verify in browser using agent-browser skill"
+      ],
+      "priority": 29,
+      "passes": true,
+      "notes": ""
+    },
+    {
+      "id": "US-030",
+      "title": "Create ProgressStages component",
+      "description": "As a user, I want to see progress stages during summary generation.",
+      "acceptanceCriteria": [
+        "Create components/ProgressStages.tsx",
+        "Display 4 stages: Fetching Transcript, Analyzing Topics, Generating Summary, Building Timeline",
+        "Current stage shows spinner",
+        "Completed stages show checkmark",
+        "Pending stages grayed out",
+        "Accept currentStage prop",
+        "Typecheck passes",
+        "Verify in browser using agent-browser skill"
+      ],
+      "priority": 30,
+      "passes": true,
+      "notes": ""
+    },
+    {
+      "id": "US-031",
+      "title": "Redesign home page layout",
+      "description": "As a user, I want a modern home page for entering video URLs.",
+      "acceptanceCriteria": [
+        "Rewrite app/page.tsx",
+        "URL input field with validation",
+        "DetailSlider component",
+        "ModelSelector component",
+        "Summarize button",
+        "Mobile-first responsive design",
+        "Typecheck passes",
+        "Verify in browser using agent-browser skill"
+      ],
+      "priority": 31,
+      "passes": true,
+      "notes": ""
+    },
+    {
+      "id": "US-032",
+      "title": "Redesign summary page - mobile layout",
+      "description": "As a user, I want the summary page optimized for mobile.",
+      "acceptanceCriteria": [
+        "Rewrite app/summary/[videoUrl]/page.tsx",
+        "Vertical stack layout: thumbnail → timeline → chapters → summary",
+        "Video thumbnail with play button overlay linking to YouTube",
+        "Conditional timeline (only when hasTimestamps)",
+        "ProgressStages during loading",
+        "Inline toast for errors",
+        "Typecheck passes",
+        "Verify in browser using agent-browser skill"
+      ],
+      "priority": 32,
+      "passes": true,
+      "notes": ""
+    },
+    {
+      "id": "US-033",
+      "title": "Redesign summary page - desktop layout",
+      "description": "As a user, I want the summary page to use horizontal split on desktop.",
+      "acceptanceCriteria": [
+        "Add responsive breakpoint (md:768px) for horizontal layout",
+        "Left column: thumbnail + timeline + topic editor",
+        "Right column: chapter links + summary content",
+        "Smooth CSS transitions between layouts",
+        "Typecheck passes",
+        "Verify in browser using agent-browser skill"
+      ],
+      "priority": 33,
+      "passes": true,
+      "notes": ""
+    },
+    {
+      "id": "US-034",
+      "title": "Add topic editor toggle to summary page",
+      "description": "As a user, I want to toggle the topic editor on the summary page.",
+      "acceptanceCriteria": [
+        "Add 'Edit Topics' button (only when authenticated and hasTimestamps)",
+        "Toggle shows/hides TopicEditor component",
+        "Save edits via /api/topics/edit endpoint",
+        "Show success toast on save",
+        "Typecheck passes",
+        "Verify in browser using agent-browser skill"
+      ],
+      "priority": 34,
+      "passes": true,
+      "notes": ""
+    },
+    {
+      "id": "US-035",
+      "title": "Create markdown export function",
+      "description": "As a user, I want to export my summary as a markdown file.",
+      "acceptanceCriteria": [
+        "Create lib/exportMarkdown.ts",
+        "Implement generateMarkdown(summary, topics, videoId) function",
+        "Include title, video link, chapter links with YouTube timestamps",
+        "Include full summary content",
+        "Return markdown string",
+        "Typecheck passes"
+      ],
+      "priority": 35,
+      "passes": true,
+      "notes": ""
+    },
+    {
+      "id": "US-036",
+      "title": "Add export button to summary page",
+      "description": "As a user, I want an export button to download the summary.",
+      "acceptanceCriteria": [
+        "Add Export button to summary page",
+        "Click triggers download of {videoId}-summary.md file",
+        "Use generateMarkdown function for content",
+        "Typecheck passes",
+        "Verify in browser using agent-browser skill"
+      ],
+      "priority": 36,
+      "passes": true,
+      "notes": ""
+    },
+    {
+      "id": "US-037",
+      "title": "Create user preferences API",
+      "description": "As a user, I want my preferences saved and retrieved via API.",
+      "acceptanceCriteria": [
+        "Create app/api/preferences/route.ts",
+        "GET returns user's preferences (requires auth)",
+        "POST/PUT updates preferences (requires auth)",
+        "Create default preferences on first access",
+        "Typecheck passes"
+      ],
+      "priority": 37,
+      "passes": true,
+      "notes": ""
+    },
+    {
+      "id": "US-038",
+      "title": "Load user preferences on home page",
+      "description": "As a user, I want my saved preferences loaded on the home page.",
+      "acceptanceCriteria": [
+        "Fetch preferences from /api/preferences on mount (if authenticated)",
+        "Pre-populate DetailSlider with saved detailLevel",
+        "Pre-populate ModelSelector with saved preferredModel",
+        "Handle unauthenticated users (use defaults)",
+        "Typecheck passes",
+        "Verify in browser using agent-browser skill"
+      ],
+      "priority": 38,
+      "passes": true,
+      "notes": ""
+    },
+    {
+      "id": "US-039",
+      "title": "Create settings page layout",
+      "description": "As a user, I want a settings page to manage my account.",
+      "acceptanceCriteria": [
+        "Create app/settings/page.tsx",
+        "Protected route (redirect to login if not authenticated)",
+        "Tab navigation: API Keys, Preferences, Prompt Templates, Usage",
+        "Responsive layout",
+        "Typecheck passes",
+        "Verify in browser using agent-browser skill"
+      ],
+      "priority": 39,
+      "passes": true,
+      "notes": ""
+    },
+    {
+      "id": "US-040",
+      "title": "Create API keys settings tab",
+      "description": "As a user, I want to manage API keys in settings.",
+      "acceptanceCriteria": [
+        "API Keys tab in settings page",
+        "Form fields for each API key (Supadata, Z.AI, Gemini, Groq, OpenAI)",
+        "Show only last 4 characters of saved keys",
+        "Test button per key with validation",
+        "Save/Delete buttons per key",
+        "Typecheck passes",
+        "Verify in browser using agent-browser skill"
+      ],
+      "priority": 40,
+      "passes": true,
+      "notes": ""
+    },
+    {
+      "id": "US-041",
+      "title": "Create preferences settings tab",
+      "description": "As a user, I want to manage my preferences in settings.",
+      "acceptanceCriteria": [
+        "Preferences tab in settings page",
+        "Language selector",
+        "Default detail level slider",
+        "Default model selector",
+        "Thinking mode default toggle",
+        "Save button",
+        "Typecheck passes",
+        "Verify in browser using agent-browser skill"
+      ],
+      "priority": 41,
+      "passes": true,
+      "notes": ""
+    },
+    {
+      "id": "US-042",
+      "title": "Create prompt templates API",
+      "description": "As a user, I want API endpoints for custom prompt templates.",
+      "acceptanceCriteria": [
+        "Create app/api/templates/route.ts",
+        "GET returns user's templates (requires auth)",
+        "POST creates new template",
+        "PUT updates template",
+        "DELETE removes template",
+        "Include default system template",
+        "Typecheck passes"
+      ],
+      "priority": 42,
+      "passes": true,
+      "notes": ""
+    },
+    {
+      "id": "US-043",
+      "title": "Create prompt templates settings tab",
+      "description": "As a user, I want to create and edit prompt templates in settings.",
+      "acceptanceCriteria": [
+        "Prompt Templates tab in settings page",
+        "List of saved templates with edit/delete buttons",
+        "Create new template button",
+        "Template editor with name and content fields",
+        "Show available variables: {{transcript}}, {{language}}, {{detailLevel}}",
+        "Typecheck passes",
+        "Verify in browser using agent-browser skill"
+      ],
+      "priority": 43,
+      "passes": true,
+      "notes": ""
+    },
+    {
+      "id": "US-044",
+      "title": "Create usage tracking API",
+      "description": "As a user, I want API endpoints for viewing my usage stats.",
+      "acceptanceCriteria": [
+        "Create app/api/usage/route.ts",
+        "GET returns aggregated usage by service",
+        "Support date range query params",
+        "Return daily/weekly/monthly breakdowns",
+        "Requires auth",
+        "Typecheck passes"
+      ],
+      "priority": 44,
+      "passes": true,
+      "notes": ""
+    },
+    {
+      "id": "US-045",
+      "title": "Create usage settings tab",
+      "description": "As a user, I want to view my API usage statistics in settings.",
+      "acceptanceCriteria": [
+        "Usage tab in settings page",
+        "Total requests by service (Supadata, Z.AI, etc.)",
+        "Credits/tokens used per service",
+        "Simple bar charts for daily/weekly usage",
+        "Per-request log table with timestamps",
+        "Typecheck passes",
+        "Verify in browser using agent-browser skill"
+      ],
+      "priority": 45,
+      "passes": true,
+      "notes": ""
+    },
+    {
+      "id": "US-046",
+      "title": "Update navigation with auth awareness",
+      "description": "As a user, I want navigation to show login/logout based on auth state.",
+      "acceptanceCriteria": [
+        "Update components/sidebar.tsx",
+        "Show Login link when not authenticated",
+        "Show username and Logout when authenticated",
+        "Add Settings link when authenticated",
+        "Update header in layout.tsx similarly",
+        "Typecheck passes",
+        "Verify in browser using agent-browser skill"
+      ],
+      "priority": 46,
+      "passes": true,
+      "notes": ""
+    },
+    {
+      "id": "US-047",
+      "title": "Create Dockerfile",
+      "description": "As a developer, I want a multi-stage Dockerfile for deployment.",
+      "acceptanceCriteria": [
+        "Create Dockerfile in project root",
+        "Stage 1: Build (install deps, run prisma generate, build Next.js)",
+        "Stage 2: Production (copy build artifacts, minimal image)",
+        "Expose port 3000",
+        "Set NODE_ENV=production",
+        "Typecheck passes"
+      ],
+      "priority": 47,
+      "passes": true,
+      "notes": ""
+    },
+    {
+      "id": "US-048",
+      "title": "Create docker-compose.yml",
+      "description": "As a developer, I want docker-compose for easy deployment.",
+      "acceptanceCriteria": [
+        "Create docker-compose.yml in project root",
+        "App service using the Dockerfile",
+        "Volume mount for SQLite database persistence",
+        "Environment variable configuration",
+        "Health check endpoint /api/health",
+        "docker-compose up builds and runs successfully",
+        "Typecheck passes"
+      ],
+      "priority": 48,
+      "passes": true,
+      "notes": ""
+    },
+    {
+      "id": "US-049",
+      "title": "Create health check endpoint",
+      "description": "As a developer, I want a health check endpoint for Docker.",
+      "acceptanceCriteria": [
+        "Create app/api/health/route.ts",
+        "GET returns { status: 'ok', timestamp }",
+        "Check database connectivity",
+        "Return 503 if database unreachable",
+        "Typecheck passes"
+      ],
+      "priority": 49,
+      "passes": true,
+      "notes": ""
+    },
+    {
+      "id": "US-050",
+      "title": "Create documentation structure",
+      "description": "As a developer/user, I want documentation in markdown files.",
+      "acceptanceCriteria": [
+        "Create docs/ folder",
+        "Create docs/installation.md with Docker setup instructions",
+        "Create docs/configuration.md with API key setup guide",
+        "Create docs/api.md with endpoint reference",
+        "Create docs/development.md with local dev setup",
+        "Update README.md with quick start and links to docs",
+        "Typecheck passes"
+      ],
+      "priority": 50,
+      "passes": true,
+      "notes": ""
+    },
+    {
+      "id": "US-051",
+      "title": "Create unit tests for encryption",
+      "description": "As a developer, I want unit tests for encryption functions.",
+      "acceptanceCriteria": [
+        "Create __tests__/lib/encryption.test.ts",
+        "Test encrypt/decrypt roundtrip",
+        "Test error handling for invalid input",
+        "Test error handling for wrong secret",
+        "All tests pass"
+      ],
+      "priority": 51,
+      "passes": true,
+      "notes": ""
+    },
+    {
+      "id": "US-052",
+      "title": "Create unit tests for topic detection",
+      "description": "As a developer, I want unit tests for topic detection.",
+      "acceptanceCriteria": [
+        "Create __tests__/lib/chunking.test.ts",
+        "Test detectTopicBoundaries with time gaps",
+        "Test detectTopicBoundaries with keywords",
+        "Test chunkTranscript with timestamps",
+        "Test chunkTranscript fallback without timestamps",
+        "All tests pass"
+      ],
+      "priority": 52,
+      "passes": true,
+      "notes": ""
+    },
+    {
+      "id": "US-053",
+      "title": "Create unit tests for auth utilities",
+      "description": "As a developer, I want unit tests for auth functions.",
+      "acceptanceCriteria": [
+        "Create __tests__/lib/auth.test.ts",
+        "Test password hashing and verification",
+        "Test JWT generation and verification",
+        "Test invalid token handling",
+        "All tests pass"
+      ],
+      "priority": 53,
+      "passes": true,
+      "notes": ""
+    },
+    {
+      "id": "US-054",
+      "title": "Create integration tests for auth API",
+      "description": "As a developer, I want integration tests for auth endpoints.",
+      "acceptanceCriteria": [
+        "Create __tests__/api/auth.test.ts",
+        "Test registration success",
+        "Test registration with existing email",
+        "Test login success",
+        "Test login with wrong password",
+        "Mock database operations",
+        "All tests pass"
+      ],
+      "priority": 54,
+      "passes": true,
+      "notes": ""
+    },
+    {
+      "id": "US-055",
+      "title": "Create integration tests for summarize API",
+      "description": "As a developer, I want integration tests for summarize endpoint.",
+      "acceptanceCriteria": [
+        "Create __tests__/api/summarize.test.ts",
+        "Test successful summary generation",
+        "Test invalid URL handling",
+        "Test missing API key handling",
+        "Mock Supadata and LLM APIs",
+        "All tests pass"
+      ],
+      "priority": 55,
+      "passes": true,
+      "notes": ""
+    },
+    {
+      "id": "US-056",
+      "title": "Create E2E test for setup wizard",
+      "description": "As a developer, I want E2E tests for the setup wizard flow.",
+      "acceptanceCriteria": [
+        "Create e2e/setup-wizard.spec.ts",
+        "Test complete wizard flow from step 1 to 4",
+        "Test skip functionality",
+        "Test validation errors",
+        "Use agent-browser skill for verification",
+        "All tests pass"
+      ],
+      "priority": 56,
+      "passes": true,
+      "notes": ""
+    },
+    {
+      "id": "US-057",
+      "title": "Create E2E test for summary generation",
+      "description": "As a developer, I want E2E tests for summary generation flow.",
+      "acceptanceCriteria": [
+        "Create e2e/summary.spec.ts",
+        "Test entering URL and generating summary",
+        "Test progress stages display",
+        "Test timeline display",
+        "Test export functionality",
+        "Use agent-browser skill for verification",
+        "All tests pass"
+      ],
+      "priority": 57,
+      "passes": true,
+      "notes": ""
+    }
+  ]
+}
