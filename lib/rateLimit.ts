@@ -64,8 +64,9 @@ export function getClientIp(request: Request): string {
   // Check common proxy headers
   const forwardedFor = request.headers.get('x-forwarded-for');
   if (forwardedFor) {
-    // X-Forwarded-For can contain multiple IPs, take the first (client)
-    return forwardedFor.split(',')[0].trim();
+    // Take the rightmost IP (added by trusted proxy), not leftmost (client can spoof)
+    const ips = forwardedFor.split(',');
+    return ips[ips.length - 1].trim();
   }
 
   const realIp = request.headers.get('x-real-ip');
