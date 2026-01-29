@@ -96,7 +96,6 @@ Database migrations and seeding (security questions) run automatically on first 
 | `APP_SECRET` | Yes | Secret key for encryption. Generate with `openssl rand -hex 32` |
 | `BETTER_AUTH_SECRET` | Yes | Secret for session signing. Generate with `openssl rand -base64 32` |
 | `BETTER_AUTH_URL` | No | Base URL for auth callbacks. Default: `http://localhost:3000` |
-| `NEXT_PUBLIC_APP_URL` | No | Public app URL. Default: `http://localhost:3000` |
 | `DATABASE_URL` | No | SQLite database path. Default: `file:./dev.db` (auto-configured for Docker) |
 
 ## User Guide
@@ -149,7 +148,7 @@ Update your API keys anytime from the Settings page.
 
 ### General Notes
 - Ensure `APP_SECRET` and `BETTER_AUTH_SECRET` are set as environment variables
-- Set `BETTER_AUTH_URL` and `NEXT_PUBLIC_APP_URL` to your production domain
+- Set `BETTER_AUTH_URL` to your production domain
 - SQLite database requires persistent volume storage
 - Container exposes port 3000
 
