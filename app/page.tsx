@@ -12,7 +12,7 @@ import { UrlInputEnhanced } from "@/components/url-input-enhanced"
 import { ModelDropdown } from "@/components/model-dropdown"
 import { LanguageDropdown, getDefaultLanguage, type OutputLanguage } from "@/components/language-dropdown"
 import { GlassCard } from "@/components/ui/glass-card"
-import { useAuth } from "@/contexts/AuthContext"
+import { useAuth } from "@/hooks/useAuth"
 import { containerVariants, itemVariants } from "@/lib/animations"
 
 export default function Home() {

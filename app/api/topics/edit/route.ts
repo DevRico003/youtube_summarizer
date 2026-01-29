@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
-import { verifyToken } from "@/lib/auth";
+import { authenticateRequest, getUserIdFromRequest } from "@/lib/apiAuth";
 
 interface TopicEdit {
   topicId: string;
@@ -10,26 +10,12 @@ interface TopicEdit {
 }
 
 /**
- * Extract and verify JWT token from Authorization header
- */
-function getUserIdFromRequest(request: NextRequest): string | null {
-  const authHeader = request.headers.get("authorization");
-  if (!authHeader || !authHeader.startsWith("Bearer ")) {
-    return null;
-  }
-
-  const token = authHeader.slice(7);
-  const payload = verifyToken(token);
-  return payload?.userId ?? null;
-}
-
-/**
  * GET /api/topics/edit?summaryId={summaryId}
  * Returns user's custom topics for a summary, or original topics if no edits exist
  */
 export async function GET(request: NextRequest) {
   try {
-    const userId = getUserIdFromRequest(request);
+    const userId = await getUserIdFromRequest(request);
     if (!userId) {
       return NextResponse.json(
         { error: "Authentication required" },
@@ -121,13 +107,12 @@ export async function GET(request: NextRequest) {
  */
 export async function POST(request: NextRequest) {
   try {
-    const userId = getUserIdFromRequest(request);
-    if (!userId) {
-      return NextResponse.json(
-        { error: "Authentication required" },
-        { status: 401 }
-      );
+    const authResult = await authenticateRequest(request);
+    if (!authResult.success) {
+      return authResult.response;
     }
+
+    const { userId } = authResult;
 
     const body = await request.json();
     const { summaryId, topics } = body as {

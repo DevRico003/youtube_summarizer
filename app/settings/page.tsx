@@ -3,9 +3,9 @@
 import { useEffect, useState, useCallback } from "react"
 import { useRouter } from "next/navigation"
 import { motion } from "framer-motion"
-import { Settings, Key, ArrowLeft, Loader2, Check, AlertCircle, Trash2, Eye, EyeOff, ExternalLink } from "lucide-react"
+import { Settings, Key, ArrowLeft, Loader2, Check, AlertCircle, Trash2, Eye, EyeOff, ExternalLink, UserX } from "lucide-react"
 import { AnimatedBackground } from "@/components/animated-background"
-import { useAuth } from "@/contexts/AuthContext"
+import { useAuth } from "@/hooks/useAuth"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { MobileSidebar } from "@/components/sidebar"
@@ -32,29 +32,27 @@ type ApiKeyService = typeof API_KEY_SERVICES[number]
 
 export default function SettingsPage() {
   const router = useRouter()
-  const { isAuthenticated, isLoading } = useAuth()
+  const { isAuthenticated, isLoading, logout } = useAuth()
 
   // API Keys state
   const [apiKeysLoading, setApiKeysLoading] = useState(true)
+
+  // Account deletion state
+  const [showDeleteConfirm, setShowDeleteConfirm] = useState(false)
+  const [deleteConfirmText, setDeleteConfirmText] = useState("")
+  const [isDeleting, setIsDeleting] = useState(false)
+  const [deleteError, setDeleteError] = useState<string | null>(null)
   const [apiKeysError, setApiKeysError] = useState<string | null>(null)
   const [apiKeys, setApiKeys] = useState<Record<string, ApiKeyInfo>>({})
   const [apiKeyStates, setApiKeyStates] = useState<Record<string, ApiKeyState>>({})
 
-  const getToken = useCallback(() => {
-    if (typeof window === "undefined") return null
-    return localStorage.getItem("token")
-  }, [])
-
   const fetchApiKeys = useCallback(async () => {
-    const token = getToken()
-    if (!token) return
-
     setApiKeysLoading(true)
     setApiKeysError(null)
 
     try {
       const response = await fetch("/api/settings/api-keys", {
-        headers: { Authorization: `Bearer ${token}` },
+        credentials: "include", // Include cookies for auth
       })
 
       if (!response.ok) throw new Error("Failed to fetch API keys")
@@ -78,14 +76,11 @@ export default function SettingsPage() {
     } finally {
       setApiKeysLoading(false)
     }
-  }, [getToken])
+  }, [])
 
   const saveApiKey = async (service: ApiKeyService) => {
     const state = apiKeyStates[service]
     if (!state.value.trim()) return
-
-    const token = getToken()
-    if (!token) return
 
     setApiKeyStates(prev => ({
       ...prev,
@@ -97,8 +92,8 @@ export default function SettingsPage() {
         method: "POST",
         headers: {
           "Content-Type": "application/json",
-          Authorization: `Bearer ${token}`,
         },
+        credentials: "include",
         body: JSON.stringify({ service, apiKey: state.value.trim() }),
       })
 
@@ -125,9 +120,6 @@ export default function SettingsPage() {
   }
 
   const deleteApiKey = async (service: ApiKeyService) => {
-    const token = getToken()
-    if (!token) return
-
     setApiKeyStates(prev => ({
       ...prev,
       [service]: { ...prev[service], deleting: true }
@@ -136,15 +128,14 @@ export default function SettingsPage() {
     try {
       const response = await fetch(`/api/settings/api-keys?service=${service}`, {
         method: "DELETE",
-        headers: { Authorization: `Bearer ${token}` },
+        credentials: "include",
       })
 
       const data = await response.json()
 
       if (response.ok && data.success) {
         await fetchApiKeys()
-
-        } else {
+      } else {
         setApiKeyStates(prev => ({
           ...prev,
           [service]: { ...prev[service], deleting: false }
@@ -170,6 +161,32 @@ export default function SettingsPage() {
       ...prev,
       [service]: { ...prev[service], showPassword: !prev[service].showPassword }
     }))
+  }
+
+  const deleteAccount = async () => {
+    if (deleteConfirmText !== "DELETE") return
+
+    setIsDeleting(true)
+    setDeleteError(null)
+
+    try {
+      const response = await fetch("/api/account/delete", {
+        method: "POST",
+        credentials: "include",
+      })
+
+      const data = await response.json()
+
+      if (response.ok && data.success) {
+        await logout()
+      } else {
+        setDeleteError(data.error || "Failed to delete account")
+        setIsDeleting(false)
+      }
+    } catch {
+      setDeleteError("Failed to delete account")
+      setIsDeleting(false)
+    }
   }
 
   useEffect(() => {
@@ -400,6 +417,85 @@ export default function SettingsPage() {
                 </GlassCardDescription>
               </GlassCardHeader>
               {renderApiKeysContent()}
+            </GlassCard>
+          </motion.div>
+
+          {/* Danger Zone */}
+          <motion.div variants={itemVariants} className="mt-8">
+            <GlassCard variant="elevated" className="border-red-200">
+              <GlassCardHeader className="px-6 py-6">
+                <div className="flex items-center gap-2">
+                  <UserX className="h-5 w-5 text-red-500" />
+                  <GlassCardTitle className="text-red-600">Danger Zone</GlassCardTitle>
+                </div>
+                <GlassCardDescription>
+                  Irreversible actions that will permanently affect your account.
+                </GlassCardDescription>
+              </GlassCardHeader>
+              <GlassCardContent className="px-6 pb-6">
+                <div className="bg-red-50 rounded-2xl p-6 border border-red-200">
+                  <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
+                    <div>
+                      <h3 className="font-semibold text-red-700">Delete Account</h3>
+                      <p className="text-sm text-red-600 mt-1">
+                        Permanently delete your account and all associated data including summaries, API keys, and settings.
+                      </p>
+                    </div>
+                    {!showDeleteConfirm ? (
+                      <Button
+                        variant="outline"
+                        onClick={() => setShowDeleteConfirm(true)}
+                        className="border-red-300 text-red-600 hover:bg-red-100 whitespace-nowrap"
+                      >
+                        <Trash2 className="h-4 w-4 mr-2" />
+                        Delete Account
+                      </Button>
+                    ) : (
+                      <div className="flex flex-col gap-3 w-full sm:w-auto">
+                        <p className="text-sm text-red-700 font-medium">
+                          Type <code className="bg-red-100 px-1.5 py-0.5 rounded">DELETE</code> to confirm:
+                        </p>
+                        <div className="flex gap-2">
+                          <Input
+                            value={deleteConfirmText}
+                            onChange={(e) => setDeleteConfirmText(e.target.value)}
+                            placeholder="DELETE"
+                            className="border-red-300 focus:border-red-500 focus:ring-red-500"
+                          />
+                          <Button
+                            variant="destructive"
+                            onClick={deleteAccount}
+                            disabled={deleteConfirmText !== "DELETE" || isDeleting}
+                            className="whitespace-nowrap"
+                          >
+                            {isDeleting ? (
+                              <Loader2 className="h-4 w-4 animate-spin" />
+                            ) : (
+                              "Confirm"
+                            )}
+                          </Button>
+                          <Button
+                            variant="outline"
+                            onClick={() => {
+                              setShowDeleteConfirm(false)
+                              setDeleteConfirmText("")
+                              setDeleteError(null)
+                            }}
+                          >
+                            Cancel
+                          </Button>
+                        </div>
+                        {deleteError && (
+                          <p className="text-sm text-red-600 flex items-center gap-1">
+                            <AlertCircle className="h-4 w-4" />
+                            {deleteError}
+                          </p>
+                        )}
+                      </div>
+                    )}
+                  </div>
+                </div>
+              </GlassCardContent>
             </GlassCard>
           </motion.div>
         </motion.div>

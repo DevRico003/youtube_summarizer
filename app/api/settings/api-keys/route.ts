@@ -15,7 +15,7 @@ const VALID_SERVICES = ["supadata", "zai"];
  */
 export async function GET(request: NextRequest) {
   // Authenticate request
-  const auth = authenticateRequest(request);
+  const auth = await authenticateRequest(request);
   if (!auth.success) {
     return auth.response;
   }
@@ -48,7 +48,7 @@ export async function GET(request: NextRequest) {
  */
 export async function DELETE(request: NextRequest) {
   // Authenticate request
-  const auth = authenticateRequest(request);
+  const auth = await authenticateRequest(request);
   if (!auth.success) {
     return auth.response;
   }

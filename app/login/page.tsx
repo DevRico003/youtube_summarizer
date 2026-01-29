@@ -1,6 +1,6 @@
 "use client"
 
-import { useState } from "react"
+import { useState, useEffect } from "react"
 import { useRouter } from "next/navigation"
 import Link from "next/link"
 import Image from "next/image"
@@ -8,15 +8,28 @@ import { motion } from "framer-motion"
 import { Mail, Lock, Loader2, AlertCircle } from "lucide-react"
 import { containerVariants, itemVariants } from "@/lib/animations"
 import { cn } from "@/lib/utils"
-import { useAuth } from "@/contexts/AuthContext"
+import { signIn } from "@/lib/auth-client"
+import { useAuth } from "@/hooks/useAuth"
 
 export default function LoginPage() {
   const router = useRouter()
-  const { login } = useAuth()
+  const { isAuthenticated, isLoading: authLoading, user } = useAuth()
   const [email, setEmail] = useState("")
   const [password, setPassword] = useState("")
+  const [rememberMe, setRememberMe] = useState(true)
   const [isLoading, setIsLoading] = useState(false)
   const [error, setError] = useState("")
+
+  // Redirect if already authenticated
+  useEffect(() => {
+    if (!authLoading && isAuthenticated && user) {
+      if (!user.setupCompleted) {
+        router.replace("/setup")
+      } else {
+        router.replace("/")
+      }
+    }
+  }, [authLoading, isAuthenticated, user, router])
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault()
@@ -24,30 +37,50 @@ export default function LoginPage() {
     setIsLoading(true)
 
     try {
-      const response = await fetch("/api/auth/login", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ email, password }),
+      const result = await signIn.email({
+        email,
+        password,
+        rememberMe,
       })
 
-      const data = await response.json()
+      if (result.error) {
+        // Generic error message to prevent user enumeration
+        setError("Invalid email or password. Please try again.")
+        return
+      }
 
-      if (data.success && data.token) {
-        login(data.token, data.user)
-        // Redirect based on setup completion status
-        if (data.user.setupCompleted === false) {
-          router.push("/setup")
-        } else {
-          router.push("/")
-        }
+      // Get user from the response to check setupCompleted
+      const userData = result.data?.user as { setupCompleted?: boolean } | undefined
+
+      // Redirect based on setup completion status
+      if (userData?.setupCompleted === false) {
+        router.push("/setup")
       } else {
-        setError(data.error || "Login failed. Please try again.")
+        router.push("/")
       }
     } catch {
       setError("An error occurred. Please try again.")
     } finally {
       setIsLoading(false)
     }
+  }
+
+  // Show loading while checking auth
+  if (authLoading) {
+    return (
+      <div className="min-h-screen gradient-soft-animated flex items-center justify-center">
+        <Loader2 className="h-8 w-8 animate-spin text-accent-primary" />
+      </div>
+    )
+  }
+
+  // Don't render if already authenticated (will redirect)
+  if (isAuthenticated) {
+    return (
+      <div className="min-h-screen gradient-soft-animated flex items-center justify-center">
+        <Loader2 className="h-8 w-8 animate-spin text-accent-primary" />
+      </div>
+    )
   }
 
   return (
@@ -127,9 +160,17 @@ export default function LoginPage() {
 
                 {/* Password field */}
                 <div className="space-y-2">
-                  <label htmlFor="password" className="text-sm font-medium text-slate-700">
-                    Password
-                  </label>
+                  <div className="flex items-center justify-between">
+                    <label htmlFor="password" className="text-sm font-medium text-slate-700">
+                      Password
+                    </label>
+                    <Link
+                      href="/forgot-password"
+                      className="text-xs text-indigo-500 hover:text-indigo-600 transition-colors"
+                    >
+                      Forgot password?
+                    </Link>
+                  </div>
                   <div className="relative">
                     <Lock className="absolute left-4 top-1/2 -translate-y-1/2 h-5 w-5 text-slate-400" />
                     <input
@@ -150,6 +191,20 @@ export default function LoginPage() {
                       disabled={isLoading}
                     />
                   </div>
+                </div>
+
+                {/* Remember me */}
+                <div className="flex items-center gap-2">
+                  <input
+                    type="checkbox"
+                    id="rememberMe"
+                    checked={rememberMe}
+                    onChange={(e) => setRememberMe(e.target.checked)}
+                    className="w-4 h-4 rounded border-slate-300 text-indigo-500 focus:ring-indigo-500"
+                  />
+                  <label htmlFor="rememberMe" className="text-sm text-slate-600">
+                    Remember me for 30 days
+                  </label>
                 </div>
 
                 {/* Submit button */}

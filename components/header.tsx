@@ -1,19 +1,16 @@
 "use client"
 
 import Link from "next/link"
-import { useRouter } from "next/navigation"
 import { Button } from "@/components/ui/button"
 import { MobileSidebar } from "@/components/sidebar"
-import { useAuth } from "@/contexts/AuthContext"
+import { useAuth } from "@/hooks/useAuth"
 import { LogIn, LogOut, Settings, User } from "lucide-react"
 
 export function Header() {
-  const router = useRouter()
   const { user, isAuthenticated, isLoading, logout } = useAuth()
 
-  const handleLogout = () => {
-    logout()
-    router.push("/")
+  const handleLogout = async () => {
+    await logout()
   }
 
   return (

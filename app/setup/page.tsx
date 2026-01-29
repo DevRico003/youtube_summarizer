@@ -8,7 +8,7 @@ import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { GlassCard, GlassCardContent, GlassCardHeader, GlassCardTitle, GlassCardDescription } from "@/components/ui/glass-card"
 import { AnimatedBackground } from "@/components/animated-background"
-import { useAuth } from "@/contexts/AuthContext"
+import { useAuth } from "@/hooks/useAuth"
 import { containerVariants, itemVariants } from "@/lib/animations"
 
 export default function SetupWizard() {
@@ -64,13 +64,12 @@ export default function SetupWizard() {
     setSupadataError("")
 
     try {
-      const token = localStorage.getItem("token")
       const response = await fetch("/api/setup/test-key", {
         method: "POST",
         headers: {
           "Content-Type": "application/json",
-          Authorization: `Bearer ${token}`,
         },
+        credentials: "include",
         body: JSON.stringify({ service: "supadata", apiKey: supadataKey }),
       })
 
@@ -100,13 +99,12 @@ export default function SetupWizard() {
     setSupadataError("")
 
     try {
-      const token = localStorage.getItem("token")
       const response = await fetch("/api/setup/save-key", {
         method: "POST",
         headers: {
           "Content-Type": "application/json",
-          Authorization: `Bearer ${token}`,
         },
+        credentials: "include",
         body: JSON.stringify({ service: "supadata", apiKey: supadataKey }),
       })
 
@@ -142,15 +140,13 @@ export default function SetupWizard() {
     }
 
     try {
-      const token = localStorage.getItem("token")
-
       // Save Z.AI key
       const response = await fetch("/api/setup/save-key", {
         method: "POST",
         headers: {
           "Content-Type": "application/json",
-          Authorization: `Bearer ${token}`,
         },
+        credentials: "include",
         body: JSON.stringify({ service: "zai", apiKey: zaiKey }),
       })
       const data = await response.json()
@@ -165,15 +161,15 @@ export default function SetupWizard() {
         method: "POST",
         headers: {
           "Content-Type": "application/json",
-          "Authorization": `Bearer ${token}`,
         },
+        credentials: "include",
       })
 
       const completeData = await completeResponse.json()
 
       if (completeData.success) {
         // Update local auth state
-        updateSetupCompleted(true)
+        await updateSetupCompleted(true)
         router.push("/")
       } else {
         setStep2Error("Failed to complete setup")

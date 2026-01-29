@@ -7,7 +7,7 @@ import { motion } from "framer-motion"
 import { AVAILABLE_LANGUAGES } from "@/lib/youtube"
 import { Badge } from "@/components/ui/badge"
 import { MobileSidebar } from "@/components/sidebar"
-import { useAuth } from "@/contexts/AuthContext"
+import { useAuth } from "@/hooks/useAuth"
 import { Youtube, Clock, Headphones, Search, History, Loader2 } from "lucide-react"
 import { containerVariants, itemVariants, cardHover } from "@/lib/animations"
 
@@ -43,11 +43,8 @@ export default function HistoryPage() {
 
     const fetchSummaries = async () => {
       try {
-        const token = localStorage.getItem("token")
         const response = await fetch("/api/history", {
-          headers: {
-            Authorization: `Bearer ${token}`,
-          },
+          credentials: "include",
         })
         if (!response.ok) {
           throw new Error("Failed to fetch summaries")

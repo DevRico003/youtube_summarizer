@@ -13,8 +13,8 @@ RUN apk add --no-cache libc6-compat python3 make g++
 COPY package.json package-lock.json ./
 COPY prisma ./prisma/
 
-# Install all dependencies
-RUN npm ci
+# Install all dependencies (--legacy-peer-deps for zod version conflict)
+RUN npm ci --legacy-peer-deps
 
 # ====================================
 # Stage 2: Builder
