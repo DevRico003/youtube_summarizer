@@ -62,44 +62,6 @@ export function checkRateLimit(
 }
 
 /**
- * Extract client IP from request headers
- * Handles various proxy configurations (X-Forwarded-For, X-Real-IP, etc.)
- */
-export function getClientIp(request: Request): string {
-  // Check common proxy headers
-  const forwardedFor = request.headers.get('x-forwarded-for');
-  if (forwardedFor) {
-    // Take the rightmost IP (added by trusted proxy), not leftmost (client can spoof)
-    const ips = forwardedFor.split(',');
-    return ips[ips.length - 1].trim();
-  }
-
-  const realIp = request.headers.get('x-real-ip');
-  if (realIp) {
-    return realIp.trim();
-  }
-
-  // Fallback - use a hash of user-agent + accept-language as identifier
-  // This is less reliable but better than nothing for serverless environments
-  const userAgent = request.headers.get('user-agent') || 'unknown';
-  const acceptLang = request.headers.get('accept-language') || 'unknown';
-  return `fallback:${hashString(userAgent + acceptLang)}`;
-}
-
-/**
- * Simple string hash function for fallback identifier
- */
-function hashString(str: string): string {
-  let hash = 0;
-  for (let i = 0; i < str.length; i++) {
-    const char = str.charCodeAt(i);
-    hash = ((hash << 5) - hash) + char;
-    hash = hash & hash; // Convert to 32-bit integer
-  }
-  return Math.abs(hash).toString(36);
-}
-
-/**
  * Clean up expired entries to prevent memory leaks
  */
 function cleanupExpiredEntries(): void {
