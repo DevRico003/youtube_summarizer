@@ -280,7 +280,7 @@ export function MobileSidebar() {
         <Button
           variant="ghost"
           size="icon"
-          className="fixed top-4 left-4 z-50 md:hidden hover:bg-slate-100/50 focus-visible:bg-slate-100/50"
+          className="fixed top-4 left-4 z-50 md:hidden bg-white/60 backdrop-blur-sm shadow-sm hover:bg-slate-100/50 focus-visible:bg-slate-100/50"
         >
           <Menu className="h-6 w-6 text-slate-500" />
           <span className="sr-only">Toggle Menu</span>
