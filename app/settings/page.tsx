@@ -40,6 +40,7 @@ export default function SettingsPage() {
   // Account deletion state
   const [showDeleteConfirm, setShowDeleteConfirm] = useState(false)
   const [deleteConfirmText, setDeleteConfirmText] = useState("")
+  const [deletePassword, setDeletePassword] = useState("")
   const [isDeleting, setIsDeleting] = useState(false)
   const [deleteError, setDeleteError] = useState<string | null>(null)
   const [apiKeysError, setApiKeysError] = useState<string | null>(null)
@@ -164,7 +165,7 @@ export default function SettingsPage() {
   }
 
   const deleteAccount = async () => {
-    if (deleteConfirmText !== "DELETE") return
+    if (deleteConfirmText !== "DELETE" || !deletePassword) return
 
     setIsDeleting(true)
     setDeleteError(null)
@@ -172,7 +173,11 @@ export default function SettingsPage() {
     try {
       const response = await fetch("/api/account/delete", {
         method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+        },
         credentials: "include",
+        body: JSON.stringify({ password: deletePassword }),
       })
 
       const data = await response.json()
@@ -452,20 +457,32 @@ export default function SettingsPage() {
                       </Button>
                     ) : (
                       <div className="flex flex-col gap-3 w-full sm:w-auto">
+                        <div>
+                          <p className="text-sm text-red-700 font-medium mb-2">
+                            Enter your password to confirm:
+                          </p>
+                          <Input
+                            type="password"
+                            value={deletePassword}
+                            onChange={(e) => setDeletePassword(e.target.value)}
+                            placeholder="Password"
+                            className="border-red-300 focus:border-red-500 focus:ring-red-500 w-full sm:w-48"
+                          />
+                        </div>
                         <p className="text-sm text-red-700 font-medium">
                           Type <code className="bg-red-100 px-1.5 py-0.5 rounded">DELETE</code> to confirm:
                         </p>
-                        <div className="flex gap-2">
+                        <div className="flex flex-wrap gap-2">
                           <Input
                             value={deleteConfirmText}
                             onChange={(e) => setDeleteConfirmText(e.target.value)}
                             placeholder="DELETE"
-                            className="border-red-300 focus:border-red-500 focus:ring-red-500"
+                            className="border-red-300 focus:border-red-500 focus:ring-red-500 w-32"
                           />
                           <Button
                             variant="destructive"
                             onClick={deleteAccount}
-                            disabled={deleteConfirmText !== "DELETE" || isDeleting}
+                            disabled={deleteConfirmText !== "DELETE" || !deletePassword || isDeleting}
                             className="whitespace-nowrap"
                           >
                             {isDeleting ? (
@@ -479,6 +496,7 @@ export default function SettingsPage() {
                             onClick={() => {
                               setShowDeleteConfirm(false)
                               setDeleteConfirmText("")
+                              setDeletePassword("")
                               setDeleteError(null)
                             }}
                           >
