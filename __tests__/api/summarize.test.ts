@@ -52,11 +52,12 @@ jest.mock('@/lib/apiAuth', () => ({
 // Mock rate limiting to always allow requests in tests
 jest.mock('@/lib/rateLimit', () => ({
   checkRateLimit: jest.fn().mockReturnValue({ allowed: true, remaining: 10 }),
-  getClientIp: jest.fn().mockReturnValue('test-ip'),
 }));
 
 // Import mocks after setting them up
 const mockedPrisma = prisma as jest.Mocked<typeof prisma>;
+import { checkRateLimit } from '@/lib/rateLimit';
+const mockedCheckRateLimit = checkRateLimit as jest.MockedFunction<typeof checkRateLimit>;
 import { fetchTranscript, TranscriptError } from '@/lib/transcript';
 import { callWithFallback, getAvailableModels } from '@/lib/llmChain';
 import { extractTopics } from '@/lib/topicExtraction';
@@ -218,6 +219,38 @@ describe('Summarize API Integration Tests', () => {
       const errorEvent = events.find((e: any) => e.type === 'error');
       expect(errorEvent).toBeDefined();
       expect((errorEvent as any).error).toBe('Invalid YouTube URL');
+    });
+  });
+
+  describe('POST /api/summarize - Rate Limiting', () => {
+    it('should return 429 when rate limit exceeded', async () => {
+      mockedCheckRateLimit.mockReturnValueOnce({
+        allowed: false,
+        retryAfterMs: 30000,
+        remaining: 0,
+      });
+
+      const request = createRequest({ url: 'https://youtube.com/watch?v=dQw4w9WgXcQ' });
+      const response = await POST(request);
+
+      expect(response.status).toBe(429);
+      const body = await response.json();
+      expect(body.error).toBe('Rate limit exceeded');
+      expect(body.retryAfterMs).toBe(30000);
+    });
+
+    it('should include Retry-After header when rate limited', async () => {
+      mockedCheckRateLimit.mockReturnValueOnce({
+        allowed: false,
+        retryAfterMs: 45000,
+        remaining: 0,
+      });
+
+      const request = createRequest({ url: 'https://youtube.com/watch?v=dQw4w9WgXcQ' });
+      const response = await POST(request);
+
+      expect(response.headers.get('Retry-After')).toBe('45');
+      expect(response.headers.get('X-RateLimit-Remaining')).toBe('0');
     });
   });
 
