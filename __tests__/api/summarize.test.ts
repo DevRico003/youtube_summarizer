@@ -2,6 +2,35 @@ import { NextRequest } from 'next/server';
 import { GET, POST } from '@/app/api/summarize/route';
 import { prisma } from '@/lib/prisma';
 
+// Types for streaming events
+interface ProgressEvent {
+  type: 'progress';
+  stage: string;
+  message?: string;
+}
+
+interface ErrorEvent {
+  type: 'error';
+  error: string;
+  details?: string;
+}
+
+interface CompleteEvent {
+  type: 'complete';
+  summary: {
+    id: string;
+    videoId: string;
+    title: string;
+    content: string;
+    source: 'cache' | 'generated';
+    hasTimestamps: boolean;
+    topics: Array<{ id: string; title: string; startMs: number; endMs: number; order: number }>;
+    modelUsed?: string;
+  };
+}
+
+type StreamEvent = ProgressEvent | ErrorEvent | CompleteEvent;
+
 // Mock Prisma
 jest.mock('@/lib/prisma', () => ({
   prisma: {
@@ -58,7 +87,7 @@ jest.mock('@/lib/rateLimit', () => ({
 const mockedPrisma = prisma as jest.Mocked<typeof prisma>;
 import { checkRateLimit } from '@/lib/rateLimit';
 const mockedCheckRateLimit = checkRateLimit as jest.MockedFunction<typeof checkRateLimit>;
-import { fetchTranscript, TranscriptError } from '@/lib/transcript';
+import { fetchTranscript } from '@/lib/transcript';
 import { callWithFallback, getAvailableModels } from '@/lib/llmChain';
 import { extractTopics } from '@/lib/topicExtraction';
 
@@ -175,9 +204,9 @@ describe('Summarize API Integration Tests', () => {
       const response = await POST(request);
       const events = await parseStreamResponse(response);
 
-      const errorEvent = events.find((e: any) => e.type === 'error');
+      const errorEvent = events.find((e: StreamEvent) => e.type === 'error');
       expect(errorEvent).toBeDefined();
-      expect((errorEvent as any).error).toBe('URL is required');
+      expect((errorEvent as ErrorEvent).error).toBe('URL is required');
     });
 
     it('should return error when URL is empty string', async () => {
@@ -185,9 +214,9 @@ describe('Summarize API Integration Tests', () => {
       const response = await POST(request);
       const events = await parseStreamResponse(response);
 
-      const errorEvent = events.find((e: any) => e.type === 'error');
+      const errorEvent = events.find((e: StreamEvent) => e.type === 'error');
       expect(errorEvent).toBeDefined();
-      expect((errorEvent as any).error).toBe('URL is required');
+      expect((errorEvent as ErrorEvent).error).toBe('URL is required');
     });
 
     it('should return error for invalid YouTube URL', async () => {
@@ -195,10 +224,10 @@ describe('Summarize API Integration Tests', () => {
       const response = await POST(request);
       const events = await parseStreamResponse(response);
 
-      const errorEvent = events.find((e: any) => e.type === 'error');
+      const errorEvent = events.find((e: StreamEvent) => e.type === 'error');
       expect(errorEvent).toBeDefined();
-      expect((errorEvent as any).error).toBe('Invalid YouTube URL');
-      expect((errorEvent as any).details).toBe('Could not extract video ID from the provided URL');
+      expect((errorEvent as ErrorEvent).error).toBe('Invalid YouTube URL');
+      expect((errorEvent as ErrorEvent).details).toBe('Could not extract video ID from the provided URL');
     });
 
     it('should return error for malformed URL', async () => {
@@ -206,9 +235,9 @@ describe('Summarize API Integration Tests', () => {
       const response = await POST(request);
       const events = await parseStreamResponse(response);
 
-      const errorEvent = events.find((e: any) => e.type === 'error');
+      const errorEvent = events.find((e: StreamEvent) => e.type === 'error');
       expect(errorEvent).toBeDefined();
-      expect((errorEvent as any).error).toBe('Invalid YouTube URL');
+      expect((errorEvent as ErrorEvent).error).toBe('Invalid YouTube URL');
     });
 
     it('should return error for YouTube URL without video ID', async () => {
@@ -216,9 +245,9 @@ describe('Summarize API Integration Tests', () => {
       const response = await POST(request);
       const events = await parseStreamResponse(response);
 
-      const errorEvent = events.find((e: any) => e.type === 'error');
+      const errorEvent = events.find((e: StreamEvent) => e.type === 'error');
       expect(errorEvent).toBeDefined();
-      expect((errorEvent as any).error).toBe('Invalid YouTube URL');
+      expect((errorEvent as ErrorEvent).error).toBe('Invalid YouTube URL');
     });
   });
 
@@ -281,11 +310,11 @@ describe('Summarize API Integration Tests', () => {
       const response = await POST(request);
       const events = await parseStreamResponse(response);
 
-      const completeEvent = events.find((e: any) => e.type === 'complete');
+      const completeEvent = events.find((e: StreamEvent) => e.type === 'complete');
       expect(completeEvent).toBeDefined();
-      expect((completeEvent as any).summary.source).toBe('cache');
-      expect((completeEvent as any).summary.id).toBe('summary-123');
-      expect((completeEvent as any).summary.topics).toHaveLength(2);
+      expect((completeEvent as CompleteEvent).summary.source).toBe('cache');
+      expect((completeEvent as CompleteEvent).summary.id).toBe('summary-123');
+      expect((completeEvent as CompleteEvent).summary.topics).toHaveLength(2);
 
       // Should not attempt to fetch transcript
       expect(mockedFetchTranscript).not.toHaveBeenCalled();
@@ -312,9 +341,9 @@ describe('Summarize API Integration Tests', () => {
       const response = await POST(request);
       const events = await parseStreamResponse(response);
 
-      const completeEvent = events.find((e: any) => e.type === 'complete');
+      const completeEvent = events.find((e: StreamEvent) => e.type === 'complete');
       expect(completeEvent).toBeDefined();
-      expect((completeEvent as any).summary.source).toBe('cache');
+      expect((completeEvent as CompleteEvent).summary.source).toBe('cache');
     });
   });
 
@@ -338,13 +367,13 @@ describe('Summarize API Integration Tests', () => {
       const events = await parseStreamResponse(response);
 
       // Should have progress event for fetching transcript
-      const progressEvent = events.find((e: any) => e.type === 'progress' && e.stage === 'fetching_transcript');
+      const progressEvent = events.find((e: StreamEvent) => e.type === 'progress' && e.stage === 'fetching_transcript');
       expect(progressEvent).toBeDefined();
 
       // Should have error event
-      const errorEvent = events.find((e: any) => e.type === 'error');
+      const errorEvent = events.find((e: StreamEvent) => e.type === 'error');
       expect(errorEvent).toBeDefined();
-      expect((errorEvent as any).error).toContain('Supadata is not configured');
+      expect((errorEvent as ErrorEvent).error).toContain('Supadata is not configured');
     });
 
     it('should return error when transcript fetch fails', async () => {
@@ -357,9 +386,9 @@ describe('Summarize API Integration Tests', () => {
       const response = await POST(request);
       const events = await parseStreamResponse(response);
 
-      const errorEvent = events.find((e: any) => e.type === 'error');
+      const errorEvent = events.find((e: StreamEvent) => e.type === 'error');
       expect(errorEvent).toBeDefined();
-      expect((errorEvent as any).error).toContain('Failed to fetch transcript');
+      expect((errorEvent as ErrorEvent).error).toContain('Failed to fetch transcript');
     });
   });
 
@@ -430,21 +459,21 @@ describe('Summarize API Integration Tests', () => {
 
       // Check progress events
       const stages = events
-        .filter((e: any) => e.type === 'progress')
-        .map((e: any) => e.stage);
+        .filter((e: StreamEvent) => e.type === 'progress')
+        .map((e: StreamEvent) => e.stage);
       expect(stages).toContain('fetching_transcript');
       expect(stages).toContain('analyzing_topics');
       expect(stages).toContain('generating_summary');
       expect(stages).toContain('building_timeline');
 
       // Check complete event
-      const completeEvent = events.find((e: any) => e.type === 'complete');
+      const completeEvent = events.find((e: StreamEvent) => e.type === 'complete');
       expect(completeEvent).toBeDefined();
-      expect((completeEvent as any).summary.source).toBe('generated');
-      expect((completeEvent as any).summary.videoId).toBe(videoId);
-      expect((completeEvent as any).summary.hasTimestamps).toBe(true);
-      expect((completeEvent as any).summary.topics).toHaveLength(2);
-      expect((completeEvent as any).summary.modelUsed).toBe('glm-4.7');
+      expect((completeEvent as CompleteEvent).summary.source).toBe('generated');
+      expect((completeEvent as CompleteEvent).summary.videoId).toBe(videoId);
+      expect((completeEvent as CompleteEvent).summary.hasTimestamps).toBe(true);
+      expect((completeEvent as CompleteEvent).summary.topics).toHaveLength(2);
+      expect((completeEvent as CompleteEvent).summary.modelUsed).toBe('glm-4.7');
     });
 
     it('should generate summary successfully without timestamps', async () => {
@@ -484,18 +513,18 @@ describe('Summarize API Integration Tests', () => {
 
       // Should NOT have building_timeline stage when no timestamps
       const stages = events
-        .filter((e: any) => e.type === 'progress')
-        .map((e: any) => e.stage);
+        .filter((e: StreamEvent) => e.type === 'progress')
+        .map((e: StreamEvent) => e.stage);
       expect(stages).toContain('fetching_transcript');
       expect(stages).toContain('analyzing_topics');
       expect(stages).toContain('generating_summary');
       expect(stages).not.toContain('building_timeline');
 
       // Check complete event
-      const completeEvent = events.find((e: any) => e.type === 'complete');
+      const completeEvent = events.find((e: StreamEvent) => e.type === 'complete');
       expect(completeEvent).toBeDefined();
-      expect((completeEvent as any).summary.hasTimestamps).toBe(false);
-      expect((completeEvent as any).summary.topics).toHaveLength(0);
+      expect((completeEvent as CompleteEvent).summary.hasTimestamps).toBe(false);
+      expect((completeEvent as CompleteEvent).summary.topics).toHaveLength(0);
 
       // extractTopics should not be called
       expect(mockedExtractTopics).not.toHaveBeenCalled();
@@ -544,11 +573,11 @@ describe('Summarize API Integration Tests', () => {
       const events = await parseStreamResponse(response);
 
       // Should still complete successfully
-      const completeEvent = events.find((e: any) => e.type === 'complete');
+      const completeEvent = events.find((e: StreamEvent) => e.type === 'complete');
       expect(completeEvent).toBeDefined();
-      expect((completeEvent as any).summary.topics).toHaveLength(0);
+      expect((completeEvent as CompleteEvent).summary.topics).toHaveLength(0);
       // No error event should be present
-      const errorEvent = events.find((e: any) => e.type === 'error');
+      const errorEvent = events.find((e: StreamEvent) => e.type === 'error');
       expect(errorEvent).toBeUndefined();
     });
 
@@ -598,7 +627,7 @@ describe('Summarize API Integration Tests', () => {
       const response = await POST(request);
       const events = await parseStreamResponse(response);
 
-      const completeEvent = events.find((e: any) => e.type === 'complete');
+      const completeEvent = events.find((e: StreamEvent) => e.type === 'complete');
       expect(completeEvent).toBeDefined();
       // The API should use default detail level 3
     });
@@ -631,9 +660,9 @@ describe('Summarize API Integration Tests', () => {
       const response = await POST(request);
       const events = await parseStreamResponse(response);
 
-      const errorEvent = events.find((e: any) => e.type === 'error');
+      const errorEvent = events.find((e: StreamEvent) => e.type === 'error');
       expect(errorEvent).toBeDefined();
-      expect((errorEvent as any).error).toContain('All models failed');
+      expect((errorEvent as ErrorEvent).error).toContain('All models failed');
     });
   });
 
@@ -678,9 +707,9 @@ describe('Summarize API Integration Tests', () => {
       const response = await POST(request);
       const events = await parseStreamResponse(response);
 
-      const errorEvent = events.find((e: any) => e.type === 'error');
+      const errorEvent = events.find((e: StreamEvent) => e.type === 'error');
       expect(errorEvent).toBeDefined();
-      expect((errorEvent as any).error).toContain('Database write error');
+      expect((errorEvent as ErrorEvent).error).toContain('Database write error');
     });
 
     it('should return error when cache check fails', async () => {
@@ -692,9 +721,9 @@ describe('Summarize API Integration Tests', () => {
       const response = await POST(request);
       const events = await parseStreamResponse(response);
 
-      const errorEvent = events.find((e: any) => e.type === 'error');
+      const errorEvent = events.find((e: StreamEvent) => e.type === 'error');
       expect(errorEvent).toBeDefined();
-      expect((errorEvent as any).error).toContain('Database connection error');
+      expect((errorEvent as ErrorEvent).error).toContain('Database connection error');
     });
   });
 
@@ -739,7 +768,7 @@ describe('Summarize API Integration Tests', () => {
       const response = await POST(request);
       const events = await parseStreamResponse(response);
 
-      const completeEvent = events.find((e: any) => e.type === 'complete');
+      const completeEvent = events.find((e: StreamEvent) => e.type === 'complete');
       expect(completeEvent).toBeDefined();
     });
 
@@ -748,7 +777,7 @@ describe('Summarize API Integration Tests', () => {
       const response = await POST(request);
       const events = await parseStreamResponse(response);
 
-      const completeEvent = events.find((e: any) => e.type === 'complete');
+      const completeEvent = events.find((e: StreamEvent) => e.type === 'complete');
       expect(completeEvent).toBeDefined();
     });
 
@@ -757,7 +786,7 @@ describe('Summarize API Integration Tests', () => {
       const response = await POST(request);
       const events = await parseStreamResponse(response);
 
-      const completeEvent = events.find((e: any) => e.type === 'complete');
+      const completeEvent = events.find((e: StreamEvent) => e.type === 'complete');
       expect(completeEvent).toBeDefined();
     });
 
@@ -766,7 +795,7 @@ describe('Summarize API Integration Tests', () => {
       const response = await POST(request);
       const events = await parseStreamResponse(response);
 
-      const completeEvent = events.find((e: any) => e.type === 'complete');
+      const completeEvent = events.find((e: StreamEvent) => e.type === 'complete');
       expect(completeEvent).toBeDefined();
     });
 
@@ -775,7 +804,7 @@ describe('Summarize API Integration Tests', () => {
       const response = await POST(request);
       const events = await parseStreamResponse(response);
 
-      const completeEvent = events.find((e: any) => e.type === 'complete');
+      const completeEvent = events.find((e: StreamEvent) => e.type === 'complete');
       expect(completeEvent).toBeDefined();
     });
   });
@@ -827,9 +856,9 @@ describe('Summarize API Integration Tests', () => {
       const response = await POST(request);
       const events = await parseStreamResponse(response);
 
-      const completeEvent = events.find((e: any) => e.type === 'complete');
+      const completeEvent = events.find((e: StreamEvent) => e.type === 'complete');
       expect(completeEvent).toBeDefined();
-      expect((completeEvent as any).summary.title).toBe('Extracted Title Here');
+      expect((completeEvent as CompleteEvent).summary.title).toBe('Extracted Title Here');
     });
 
     it('should use fallback title when no title found in summary', async () => {
@@ -860,9 +889,9 @@ describe('Summarize API Integration Tests', () => {
       const response = await POST(request);
       const events = await parseStreamResponse(response);
 
-      const completeEvent = events.find((e: any) => e.type === 'complete');
+      const completeEvent = events.find((e: StreamEvent) => e.type === 'complete');
       expect(completeEvent).toBeDefined();
-      expect((completeEvent as any).summary.title).toContain('Video Summary');
+      expect((completeEvent as CompleteEvent).summary.title).toContain('Video Summary');
     });
   });
 

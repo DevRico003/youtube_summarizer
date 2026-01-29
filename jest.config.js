@@ -1,3 +1,4 @@
+/* global module */
 /** @type {import('jest').Config} */
 const config = {
   testEnvironment: 'node',

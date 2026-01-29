@@ -136,7 +136,7 @@ Update your API keys anytime from the Settings page.
 
 ## Tech Stack
 
-- **Framework**: [Next.js 15](https://nextjs.org/) (React 19)
+- **Framework**: [Next.js 16](https://nextjs.org/) (React 19, Turbopack)
 - **Language**: [TypeScript](https://www.typescriptlang.org/)
 - **Authentication**: [better-auth](https://better-auth.com/) (HTTP-only cookies)
 - **Styling**: [Tailwind CSS](https://tailwindcss.com/)
