@@ -6,7 +6,6 @@ import Link from "next/link"
 import { motion } from "framer-motion"
 import { AVAILABLE_LANGUAGES } from "@/lib/youtube"
 import { Badge } from "@/components/ui/badge"
-import { MobileSidebar } from "@/components/sidebar"
 import { useAuth } from "@/hooks/useAuth"
 import { Youtube, Clock, Headphones, Search, History, Loader2 } from "lucide-react"
 import { containerVariants, itemVariants, cardHover } from "@/lib/animations"
@@ -185,7 +184,6 @@ export default function HistoryPage() {
   if (loading) {
     return (
       <div className="min-h-screen gradient-soft-animated p-4 md:p-8">
-        <MobileSidebar />
         <div className="max-w-6xl mx-auto">
           <div className="text-center mb-10">
             <h1 className="font-display text-4xl md:text-5xl font-bold tracking-tight mb-4 text-slate-900">
@@ -209,7 +207,6 @@ export default function HistoryPage() {
   if (error) {
     return (
       <div className="min-h-screen gradient-soft-animated p-4 md:p-8">
-        <MobileSidebar />
         <div className="max-w-6xl mx-auto">
           <div className="text-center mb-10">
             <h1 className="font-display text-4xl md:text-5xl font-bold tracking-tight mb-4 text-slate-900">
@@ -229,8 +226,6 @@ export default function HistoryPage() {
 
   return (
     <div className="min-h-screen gradient-soft-animated p-4 md:p-8">
-      <MobileSidebar />
-
       <motion.div
         className="max-w-6xl mx-auto"
         variants={containerVariants}

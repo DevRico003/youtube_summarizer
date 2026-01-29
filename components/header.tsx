@@ -2,7 +2,6 @@
 
 import Link from "next/link"
 import { Button } from "@/components/ui/button"
-import { MobileSidebar } from "@/components/sidebar"
 import { useAuth } from "@/hooks/useAuth"
 import { LogIn, LogOut, Settings, User } from "lucide-react"
 
@@ -15,7 +14,6 @@ export function Header() {
 
   return (
     <header className="flex h-14 items-center border-b px-4 lg:px-6">
-      <MobileSidebar />
       <h1 className="text-lg font-semibold">YouTube AI Summarizer</h1>
 
       {/* Auth controls on right side */}

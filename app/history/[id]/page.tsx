@@ -18,7 +18,6 @@ import {
   BookOpen,
 } from "lucide-react"
 import { Button } from "@/components/ui/button"
-import { MobileSidebar } from "@/components/sidebar"
 import { ChapterTimeline } from "@/components/chapter-timeline"
 import { TranscriptWithTimestamps } from "@/components/transcript-with-timestamps"
 import {
@@ -229,7 +228,6 @@ export default function HistoryDetailPage({ params }: PageProps) {
   if (loading) {
     return (
       <div className="min-h-screen gradient-soft p-4 md:p-8">
-        <MobileSidebar />
         <div className="max-w-7xl mx-auto space-y-6">
           <div className="grid lg:grid-cols-5 gap-6">
             <div className="lg:col-span-2 space-y-5">
@@ -245,8 +243,6 @@ export default function HistoryDetailPage({ params }: PageProps) {
 
   return (
     <div className="min-h-screen gradient-soft">
-      <MobileSidebar />
-
       {/* Header */}
       <header className="sticky top-0 z-50 bg-white/70 backdrop-blur-xl border-b border-slate-200/50">
         <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">

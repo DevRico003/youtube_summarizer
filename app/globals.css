@@ -323,3 +323,20 @@
 *:focus-visible {
   @apply outline-none ring-2 ring-[hsl(var(--accent-primary)/0.3)] ring-offset-2 ring-offset-white;
 }
+
+/* Touch optimization utilities */
+@layer utilities {
+  .touch-target-min {
+    min-height: 44px;
+    min-width: 44px;
+  }
+
+  .no-tap-highlight {
+    -webkit-tap-highlight-color: transparent;
+  }
+
+  .touch-scroll {
+    -webkit-overflow-scrolling: touch;
+    overscroll-behavior: contain;
+  }
+}

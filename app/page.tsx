@@ -7,7 +7,6 @@ import Image from "next/image"
 import { motion } from "framer-motion"
 import { Loader2, Sparkles, Play, Zap, Clock, BookOpen, ArrowRight } from "lucide-react"
 import { extractVideoId } from "@/lib/youtube"
-import { MobileSidebar } from "@/components/sidebar"
 import { UrlInputEnhanced } from "@/components/url-input-enhanced"
 import { ModelDropdown } from "@/components/model-dropdown"
 import { LanguageDropdown, getDefaultLanguage, type OutputLanguage } from "@/components/language-dropdown"
@@ -254,8 +253,6 @@ export default function Home() {
   // Main app for authenticated users with completed setup
   return (
     <div className="min-h-screen gradient-soft-animated">
-      <MobileSidebar />
-
       <div className="min-h-screen p-4 md:p-8 lg:p-12 flex flex-col items-center justify-center">
         <motion.div
           className="max-w-xl mx-auto w-full"
