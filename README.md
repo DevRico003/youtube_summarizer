@@ -161,19 +161,13 @@ Update your API keys anytime from the Settings page.
 
 ## v1 vs v2
 
-YouTube Summarizer v2 is a complete rewrite focused on simplicity:
+YouTube Summarizer v2 is a complete rewrite:
 
 - **Streamlined UX** - Removed preferences and templates for a cleaner flow
 - **Transcript extraction & creation** - Transcript extraction with timestamps and if no timestamps available supadata does analyse the video and create them
 - **Setup Wizard** - Guided API key configuration
-- **Per-User Isolation** - Each user manages their own API keys and data
+- **Per-User Isolation** - Each user manages their own API keys and data with better-auth state of the art auth security
 - **New LLM** - Z.AI GLM-4.7 as primary model (more providers planned)
-
-## Contributing
-
-Contributions are welcome! Feel free to:
-- Open issues for bugs or feature requests
-- Submit pull requests
 
 ## License
 
