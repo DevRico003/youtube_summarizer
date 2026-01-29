@@ -84,6 +84,11 @@ export async function POST(request: NextRequest) {
     const resetToken = crypto.randomUUID()
     const expiresAt = new Date(Date.now() + 15 * 60 * 1000) // 15 minutes
 
+    // Delete any existing tokens for this email before creating a new one
+    await prisma.verification.deleteMany({
+      where: { identifier: email.toLowerCase() },
+    })
+
     await prisma.verification.create({
       data: {
         identifier: email.toLowerCase(),

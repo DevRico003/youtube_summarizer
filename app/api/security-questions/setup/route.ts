@@ -81,7 +81,7 @@ export async function POST(request: NextRequest) {
       answers.map(async (answer, index) => ({
         userId,
         questionId: answer.questionId,
-        answerHash: await bcrypt.hash(answer.answer.toLowerCase().trim(), 10),
+        answerHash: await bcrypt.hash(answer.answer.toLowerCase().trim(), 12),
         questionOrder: index + 1,
       }))
     )
