@@ -1,13 +1,13 @@
 "use client"
 
-import { useState } from "react"
+import { useState, useEffect } from "react"
 import Link from "next/link"
 import Image from "next/image"
 import { usePathname } from "next/navigation"
 import { motion, AnimatePresence } from "framer-motion"
 import { cn } from "@/lib/utils"
 import { Button } from "@/components/ui/button"
-import { Sheet, SheetContent, SheetTrigger } from "@/components/ui/sheet"
+import { Sheet, SheetContent, SheetTrigger, SheetTitle, SheetDescription } from "@/components/ui/sheet"
 import {
   Tooltip,
   TooltipContent,
@@ -198,8 +198,8 @@ export function Sidebar({ className }: SidebarProps) {
         </div>
       </motion.aside>
 
-      {/* Spacer to push content */}
-      <div className="w-16 flex-shrink-0" />
+      {/* Spacer to push content - hidden on mobile */}
+      <div className="w-16 flex-shrink-0 hidden md:block" />
     </TooltipProvider>
   )
 }
@@ -254,22 +254,35 @@ function NavItem({ icon: Icon, label, href, isActive, isExpanded }: NavItemProps
 }
 
 export function MobileSidebar() {
+  const [open, setOpen] = useState(false)
   const pathname = usePathname()
   const { user, isAuthenticated, isLoading, logout } = useAuth()
+
+  // Close sidebar on route change
+  useEffect(() => {
+    setOpen(false)
+  }, [pathname])
 
   const handleLogout = async () => {
     await logout()
   }
 
+  const handleDragEnd = (_: unknown, info: { offset: { x: number } }) => {
+    // Close if swiped left more than 100px
+    if (info.offset.x < -100) {
+      setOpen(false)
+    }
+  }
+
   return (
-    <Sheet>
+    <Sheet open={open} onOpenChange={setOpen}>
       <SheetTrigger asChild>
         <Button
           variant="ghost"
           size="icon"
-          className="fixed top-4 left-4 z-50 md:hidden bg-white/80 backdrop-blur shadow-sm border border-slate-200/60"
+          className="fixed top-4 left-4 z-50 md:hidden hover:bg-slate-100/50 focus-visible:bg-slate-100/50"
         >
-          <Menu className="h-5 w-5 text-slate-600" />
+          <Menu className="h-6 w-6 text-slate-500" />
           <span className="sr-only">Toggle Menu</span>
         </Button>
       </SheetTrigger>
@@ -277,6 +290,15 @@ export function MobileSidebar() {
         side="left"
         className="w-64 p-0 bg-white border-r border-slate-200/60"
       >
+        <SheetTitle className="sr-only">Navigation Menu</SheetTitle>
+        <SheetDescription className="sr-only">Main navigation sidebar</SheetDescription>
+        <motion.div
+          className="h-full flex flex-col"
+          drag="x"
+          dragConstraints={{ left: -100, right: 0 }}
+          dragElastic={0.1}
+          onDragEnd={handleDragEnd}
+        >
         {/* Logo */}
         <div className="h-16 flex items-center px-6 border-b border-slate-200/60">
           <Link href="/" className="flex items-center gap-3">
@@ -305,7 +327,7 @@ export function MobileSidebar() {
                   key={route.href}
                   href={route.href}
                   className={cn(
-                    "flex items-center gap-3 px-3 py-2.5 rounded-xl",
+                    "flex items-center gap-3 px-4 py-3.5 rounded-xl min-h-[48px]",
                     "transition-colors duration-200",
                     isActive
                       ? "bg-indigo-50 text-indigo-600"
@@ -321,7 +343,7 @@ export function MobileSidebar() {
               <Link
                 href="/settings"
                 className={cn(
-                  "flex items-center gap-3 px-3 py-2.5 rounded-xl",
+                  "flex items-center gap-3 px-4 py-3.5 rounded-xl min-h-[48px]",
                   "transition-colors duration-200",
                   pathname === "/settings"
                     ? "bg-indigo-50 text-indigo-600"
@@ -338,18 +360,18 @@ export function MobileSidebar() {
         {/* User section */}
         <div className="border-t border-slate-200/60 p-3">
           {isLoading ? (
-            <div className="h-10 flex items-center justify-center">
+            <div className="h-12 flex items-center justify-center">
               <div className="w-6 h-6 rounded-full bg-slate-200 animate-pulse" />
             </div>
           ) : isAuthenticated ? (
             <div className="space-y-2">
-              <div className="flex items-center gap-3 px-3 py-2 text-slate-500">
+              <div className="flex items-center gap-3 px-4 py-3 text-slate-500">
                 <User className="w-4 h-4" />
                 <span className="text-sm truncate">{user?.email}</span>
               </div>
               <button
                 onClick={handleLogout}
-                className="w-full flex items-center gap-3 px-3 py-2 rounded-xl text-slate-500 hover:text-slate-700 hover:bg-slate-100 transition-colors"
+                className="w-full flex items-center gap-3 px-4 py-3.5 rounded-xl min-h-[48px] text-slate-500 hover:text-slate-700 hover:bg-slate-100 transition-colors"
               >
                 <LogOut className="w-5 h-5" />
                 <span className="text-sm">Logout</span>
@@ -358,13 +380,14 @@ export function MobileSidebar() {
           ) : (
             <Link
               href="/login"
-              className="flex items-center gap-3 px-3 py-2.5 rounded-xl text-slate-500 hover:text-slate-700 hover:bg-slate-100 transition-colors"
+              className="flex items-center gap-3 px-4 py-3.5 rounded-xl min-h-[48px] text-slate-500 hover:text-slate-700 hover:bg-slate-100 transition-colors"
             >
               <LogIn className="w-5 h-5" />
               <span className="text-sm font-medium">Login</span>
             </Link>
           )}
         </div>
+        </motion.div>
       </SheetContent>
     </Sheet>
   )

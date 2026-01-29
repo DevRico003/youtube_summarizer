@@ -8,7 +8,6 @@ import { AnimatedBackground } from "@/components/animated-background"
 import { useAuth } from "@/hooks/useAuth"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
-import { MobileSidebar } from "@/components/sidebar"
 import { GlassCard, GlassCardContent, GlassCardHeader, GlassCardTitle, GlassCardDescription } from "@/components/ui/glass-card"
 import { containerVariants, itemVariants } from "@/lib/animations"
 import { cn } from "@/lib/utils"
@@ -277,31 +276,29 @@ export default function SettingsPage() {
                 className="bg-white rounded-2xl p-6 border border-slate-200/60 shadow-sm"
               >
                 {/* Service Header */}
-                <div className="flex items-center justify-between mb-4">
-                  <div className="flex items-center gap-3">
-                    <span className="font-semibold text-slate-900">
-                      {keyInfo?.displayName || service}
+                <div className="flex flex-wrap items-center gap-2 mb-4">
+                  <span className="font-semibold text-slate-900">
+                    {keyInfo?.displayName || service}
+                  </span>
+                  {keyInfo?.configured ? (
+                    <span className={cn(
+                      "inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-full text-xs font-medium",
+                      "bg-emerald-500/10 text-emerald-600"
+                    )}>
+                      <span className="w-1.5 h-1.5 rounded-full bg-emerald-500" />
+                      Configured
                     </span>
-                    {keyInfo?.configured ? (
-                      <span className={cn(
-                        "inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-full text-xs font-medium",
-                        "bg-emerald-500/10 text-emerald-600"
-                      )}>
-                        <span className="w-1.5 h-1.5 rounded-full bg-emerald-500" />
-                        Configured
-                      </span>
-                    ) : (
-                      <span className={cn(
-                        "inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-full text-xs font-medium",
-                        "bg-slate-200/50 text-slate-500"
-                      )}>
-                        <span className="w-1.5 h-1.5 rounded-full bg-slate-400" />
-                        Not configured
-                      </span>
-                    )}
-                  </div>
+                  ) : (
+                    <span className={cn(
+                      "inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-full text-xs font-medium",
+                      "bg-slate-200/50 text-slate-500"
+                    )}>
+                      <span className="w-1.5 h-1.5 rounded-full bg-slate-400" />
+                      Not configured
+                    </span>
+                  )}
                   {keyInfo?.masked && (
-                    <code className="text-xs bg-slate-100 px-2 py-1 rounded font-mono text-slate-500">
+                    <code className="text-xs bg-slate-100 px-2 py-1 rounded font-mono text-slate-500 truncate max-w-[120px] sm:max-w-none">
                       {keyInfo.masked}
                     </code>
                   )}
@@ -383,8 +380,6 @@ export default function SettingsPage() {
     <>
       <AnimatedBackground intensity="low" />
       <div className="min-h-screen p-4 md:p-8">
-        <MobileSidebar />
-
         <motion.div
           className="max-w-2xl mx-auto"
           variants={containerVariants}

@@ -1,7 +1,7 @@
 import type { Metadata } from "next"
 import { Inter, Space_Grotesk, JetBrains_Mono } from "next/font/google"
 import "./globals.css"
-import { Sidebar } from "@/components/sidebar"
+import { Sidebar, MobileSidebar } from "@/components/sidebar"
 import { Providers } from "@/components/providers"
 import type React from "react"
 
@@ -43,6 +43,8 @@ export default function RootLayout({
           <div className="flex min-h-screen">
             {/* Minimal Sidebar - Hidden on mobile, visible on md+ */}
             <Sidebar className="hidden md:flex" />
+            {/* Mobile Sidebar - centralized here for all pages */}
+            <MobileSidebar />
 
             {/* Main Content Area */}
             <main className="flex-1 min-h-screen gradient-mesh overflow-y-auto">
