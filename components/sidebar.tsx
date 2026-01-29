@@ -293,7 +293,7 @@ export function MobileSidebar() {
         <motion.div
           className="h-full flex flex-col"
           drag="x"
-          dragConstraints={{ left: -200, right: 0 }}
+          dragConstraints={{ left: -100, right: 0 }}
           dragElastic={0.1}
           onDragEnd={handleDragEnd}
         >
