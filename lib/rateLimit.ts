@@ -1,6 +1,11 @@
 /**
  * Simple in-memory rate limiting for API routes
- * Limits requests per IP address to prevent brute-force attacks
+ * Limits requests per user to prevent brute-force attacks
+ *
+ * NOTE: This in-memory store resets on server restart and doesn't sync
+ * across multiple instances. For horizontal scaling, consider Redis or Vercel KV.
+ * Current approach is acceptable for single-instance deployments and as
+ * defense-in-depth (not the sole security measure).
  */
 
 interface RateLimitEntry {
