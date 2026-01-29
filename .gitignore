@@ -56,3 +56,5 @@ handoffs/
 plans/
 playwright-report/
 test-results/
+# next-agents-md
+.next-docs/
