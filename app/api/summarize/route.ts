@@ -7,6 +7,7 @@ import { callWithFallback, getAvailableModels, type ModelId } from "@/lib/llmCha
 import { extractTopics, type ExtractedTopic } from "@/lib/topicExtraction";
 import { logApiUsage } from "@/lib/usageLogger";
 import { authenticateRequest } from "@/lib/apiAuth";
+import { checkRateLimit, getClientIp } from "@/lib/rateLimit";
 
 /**
  * Progress event types for streaming responses
@@ -88,6 +89,27 @@ const LANGUAGE_NAMES: Record<OutputLanguage, string> = {
  * Returns: Streaming progress events
  */
 export async function POST(req: NextRequest) {
+  // Rate limit check (10 requests per minute per IP)
+  const clientIp = getClientIp(req);
+  const rateLimit = checkRateLimit(clientIp, 10, 60 * 1000);
+
+  if (!rateLimit.allowed) {
+    return NextResponse.json(
+      {
+        error: "Rate limit exceeded",
+        retryAfterMs: rateLimit.retryAfterMs,
+        message: "Too many requests. Please wait before trying again."
+      },
+      {
+        status: 429,
+        headers: {
+          'Retry-After': String(Math.ceil((rateLimit.retryAfterMs || 60000) / 1000)),
+          'X-RateLimit-Remaining': '0',
+        }
+      }
+    );
+  }
+
   // Authenticate request first (before starting stream)
   const auth = authenticateRequest(req);
   if (!auth.success) {

@@ -49,6 +49,12 @@ jest.mock('@/lib/apiAuth', () => ({
   }),
 }));
 
+// Mock rate limiting to always allow requests in tests
+jest.mock('@/lib/rateLimit', () => ({
+  checkRateLimit: jest.fn().mockReturnValue({ allowed: true, remaining: 10 }),
+  getClientIp: jest.fn().mockReturnValue('test-ip'),
+}));
+
 // Import mocks after setting them up
 const mockedPrisma = prisma as jest.Mocked<typeof prisma>;
 import { fetchTranscript, TranscriptError } from '@/lib/transcript';

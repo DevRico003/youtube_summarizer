@@ -1,4 +1,29 @@
+const VALID_YOUTUBE_DOMAINS = [
+  'youtube.com',
+  'www.youtube.com',
+  'youtu.be',
+  'm.youtube.com'
+];
+
 export function extractVideoId(youtube_url: string): string {
+  const url = youtube_url.trim();
+
+  // Security check: Only allow valid YouTube domains
+  try {
+    const parsedUrl = new URL(url);
+    const hostname = parsedUrl.hostname.toLowerCase();
+    if (!VALID_YOUTUBE_DOMAINS.includes(hostname)) {
+      throw new Error("Invalid domain");
+    }
+  } catch {
+    // If it's not a valid URL, check if it's just a video ID (11 chars)
+    if (!/^[0-9A-Za-z_-]{11}$/.test(url)) {
+      throw new Error("Invalid YouTube URL or video ID");
+    }
+    // It's a valid video ID, return it directly
+    return url;
+  }
+
   const patterns = [
     /(?:v=|\/)([0-9A-Za-z_-]{11}).*/,      // Standard and shared URLs
     /(?:embed\/)([0-9A-Za-z_-]{11})/,       // Embed URLs
@@ -6,8 +31,6 @@ export function extractVideoId(youtube_url: string): string {
     /(?:shorts\/)([0-9A-Za-z_-]{11})/,      // YouTube Shorts
     /^([0-9A-Za-z_-]{11})$/                 // Just the video ID
   ];
-
-  const url = youtube_url.trim();
 
   for (const pattern of patterns) {
     const match = url.match(pattern);
