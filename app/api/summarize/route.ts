@@ -54,7 +54,7 @@ interface SummaryResult {
  */
 export async function GET(req: NextRequest) {
   // Authenticate request
-  const auth = authenticateRequest(req);
+  const auth = await authenticateRequest(req);
   if (!auth.success) {
     return auth.response;
   }
@@ -90,7 +90,7 @@ const LANGUAGE_NAMES: Record<OutputLanguage, string> = {
  */
 export async function POST(req: NextRequest) {
   // Authenticate request first
-  const auth = authenticateRequest(req);
+  const auth = await authenticateRequest(req);
   if (!auth.success) {
     return auth.response;
   }

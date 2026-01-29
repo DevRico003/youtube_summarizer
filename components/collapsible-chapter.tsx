@@ -159,12 +159,12 @@ export function parseSummaryContent(content: string): ParsedSummary | null {
       result.recommendedChapters = recLines.map(line => {
         const cleanLine = line.replace(/^-\s*/, "").trim()
 
-        // Match: Chapter Name - Reason [(Timestamp)](link)
+        // Match: **Chapter Name** - Reason [(Timestamp)](link). (with optional trailing punctuation)
         // Or: [Chapter Name](link) - Reason
-        const fullMatch = cleanLine.match(/^(.+?)\s*-\s*(.+?)\s*\[([^\]]+)\]\(([^)]+)\)$/)
+        const fullMatch = cleanLine.match(/^(.+?)\s*-\s*(.+?)\s*\[([^\]]+)\]\(([^)]+)\)\.?$/)
         if (fullMatch) {
           return {
-            name: fullMatch[1].trim(),
+            name: fullMatch[1].trim().replace(/^\*\*|\*\*$/g, ""), // Remove ** markdown
             reason: fullMatch[2].trim(),
             link: fullMatch[4],
           }

@@ -13,8 +13,8 @@ RUN apk add --no-cache libc6-compat python3 make g++
 COPY package.json package-lock.json ./
 COPY prisma ./prisma/
 
-# Install all dependencies
-RUN npm ci
+# Install all dependencies (--legacy-peer-deps for zod version conflict)
+RUN npm ci --legacy-peer-deps
 
 # ====================================
 # Stage 2: Builder
@@ -36,6 +36,8 @@ RUN npx prisma generate
 ENV NEXT_TELEMETRY_DISABLED=1
 # Provide a dummy DATABASE_URL for build time - the real URL is set at runtime
 ENV DATABASE_URL="file:./build-placeholder.db"
+# Provide a dummy BETTER_AUTH_SECRET for build time - the real secret is set at runtime
+ENV BETTER_AUTH_SECRET="build-time-placeholder-not-used-in-production"
 RUN npm run build
 
 # ====================================

@@ -18,6 +18,15 @@ if [ -n "$DATABASE_URL" ]; then
   fi
 
   echo "Database migrations completed."
+
+  # Seed security questions if they don't exist
+  # Extract database path from DATABASE_URL (format: file:/path/to/db)
+  DB_PATH=$(echo "$DATABASE_URL" | sed 's|file:||')
+  if [ -f "$DB_PATH" ] && [ -f "/app/prisma/seed.sql" ]; then
+    echo "Seeding security questions..."
+    sqlite3 "$DB_PATH" < /app/prisma/seed.sql
+    echo "Security questions seeded."
+  fi
 fi
 
 # Start the application

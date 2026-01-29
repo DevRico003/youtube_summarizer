@@ -1,31 +1,19 @@
 import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
-import { verifyToken } from "@/lib/auth";
+import { authenticateRequest } from "@/lib/apiAuth";
 
 export async function POST(request: NextRequest) {
   try {
-    // Get token from Authorization header
-    const authHeader = request.headers.get("authorization");
-    if (!authHeader || !authHeader.startsWith("Bearer ")) {
-      return NextResponse.json(
-        { error: "Authorization required" },
-        { status: 401 }
-      );
+    const authResult = await authenticateRequest(request);
+    if (!authResult.success) {
+      return authResult.response;
     }
 
-    const token = authHeader.replace("Bearer ", "");
-    const payload = verifyToken(token);
-
-    if (!payload) {
-      return NextResponse.json(
-        { error: "Invalid or expired token" },
-        { status: 401 }
-      );
-    }
+    const { userId, session } = authResult;
 
     // Update user's setupCompleted status
     const user = await prisma.user.update({
-      where: { id: payload.userId },
+      where: { id: userId },
       data: { setupCompleted: true },
       select: {
         id: true,
@@ -34,9 +22,23 @@ export async function POST(request: NextRequest) {
       },
     });
 
+    // Also update the current session to reflect the new setupCompleted status
+    // This ensures the client gets the updated value immediately (bypasses cookie cache)
+    if (session?.session?.id) {
+      await prisma.session.update({
+        where: { id: session.session.id },
+        data: {
+          setupCompleted: true,
+          updatedAt: new Date(),
+        },
+      });
+    }
+
     return NextResponse.json({
       success: true,
       user,
+      // Signal client to refresh session
+      refreshSession: true,
     });
   } catch (error) {
     console.error("Setup complete error:", error);

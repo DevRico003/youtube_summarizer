@@ -19,6 +19,8 @@ Transform lengthy YouTube videos into structured, digestible summaries. YouTube 
 - **Markdown Export** - Download summaries as markdown files
 - **Summary Caching** - Summaries are cached per-user, per-video for instant access
 - **Permanent History** - All summaries are archived and searchable
+- **Secure Authentication** - HTTP-only cookie sessions with [better-auth](https://better-auth.com)
+- **Password Recovery** - Security questions for self-service password reset
 
 ## Prerequisites
 
@@ -42,17 +44,19 @@ git clone https://github.com/DevRico003/youtube_summarizer.git
 cd youtube_summarizer
 
 # 2. Install dependencies
-npm install
+npm install --legacy-peer-deps
 
 # 3. Configure environment
 cp .env.example .env
 
-# Generate APP_SECRET and add to .env:
-openssl rand -hex 32
+# Generate secrets and add to .env:
+openssl rand -hex 32      # For APP_SECRET
+openssl rand -base64 32   # For BETTER_AUTH_SECRET
 
 # 4. Setup database
 npx prisma generate
 npx prisma db push
+npx prisma db seed
 
 # 5. Run development server
 npm run dev
@@ -74,26 +78,31 @@ cd youtube_summarizer
 # 2. Configure environment
 cp .env.example .env
 
-# Generate APP_SECRET and add to .env:
-openssl rand -hex 32
+# Generate secrets and add to .env:
+openssl rand -hex 32      # For APP_SECRET
+openssl rand -base64 32   # For BETTER_AUTH_SECRET
 
 # 3. Run with docker-compose
 docker-compose up -d
 ```
 
 The application will be available at `http://localhost:3000`.
+Database migrations and seeding (security questions) run automatically on first start.
 
 ## Environment Variables
 
 | Variable | Required | Description |
 |----------|----------|-------------|
-| `APP_SECRET` | Yes | Secret key for JWT signing. Generate with `openssl rand -hex 32` |
+| `APP_SECRET` | Yes | Secret key for encryption. Generate with `openssl rand -hex 32` |
+| `BETTER_AUTH_SECRET` | Yes | Secret for session signing. Generate with `openssl rand -base64 32` |
+| `BETTER_AUTH_URL` | No | Base URL for auth callbacks. Default: `http://localhost:3000` |
+| `NEXT_PUBLIC_APP_URL` | No | Public app URL. Default: `http://localhost:3000` |
 | `DATABASE_URL` | No | SQLite database path. Default: `file:./dev.db` (auto-configured for Docker) |
 
 ## User Guide
 
 ### 1. Registration
-Create an account with your email and password. Each user has their own isolated data and API keys.
+Create an account with your email and password. During registration, you'll set up 3 security questions for password recovery. Each user has their own isolated data and API keys.
 ![Login](login.png)
 
 ### 2. Setup Wizard
@@ -129,6 +138,7 @@ Update your API keys anytime from the Settings page.
 
 - **Framework**: [Next.js 15](https://nextjs.org/) (React 19)
 - **Language**: [TypeScript](https://www.typescriptlang.org/)
+- **Authentication**: [better-auth](https://better-auth.com/) (HTTP-only cookies)
 - **Styling**: [Tailwind CSS](https://tailwindcss.com/)
 - **Database**: [Prisma](https://www.prisma.io/) + SQLite
 - **Animations**: [Framer Motion](https://www.framer.com/motion/)
@@ -138,13 +148,14 @@ Update your API keys anytime from the Settings page.
 ## Cloud Deployment
 
 ### General Notes
-- Ensure `APP_SECRET` is set as an environment variable
+- Ensure `APP_SECRET` and `BETTER_AUTH_SECRET` are set as environment variables
+- Set `BETTER_AUTH_URL` and `NEXT_PUBLIC_APP_URL` to your production domain
 - SQLite database requires persistent volume storage
 - Container exposes port 3000
 
 ### VPS (Docker)
 1. Clone repository on your server
-2. Configure `.env` with `APP_SECRET`
+2. Configure `.env` with secrets and production URLs
 3. Run `docker-compose up -d`
 4. Configure reverse proxy (nginx/Caddy) for HTTPS
 

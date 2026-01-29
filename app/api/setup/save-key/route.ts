@@ -19,7 +19,7 @@ export async function POST(request: NextRequest) {
     }
 
     // Authenticate request
-    const auth = authenticateRequest(request);
+    const auth = await authenticateRequest(request);
     if (!auth.success) {
       return auth.response;
     }

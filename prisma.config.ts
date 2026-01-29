@@ -2,6 +2,7 @@ export default {
   schema: 'prisma/schema.prisma',
   migrations: {
     path: 'prisma/migrations',
+    seed: 'npx tsx prisma/seed.ts',
   },
   datasource: {
     // Use process.env instead of env() to allow builds without DATABASE_URL

@@ -3,7 +3,7 @@
 import { useState } from "react"
 import Link from "next/link"
 import Image from "next/image"
-import { usePathname, useRouter } from "next/navigation"
+import { usePathname } from "next/navigation"
 import { motion, AnimatePresence } from "framer-motion"
 import { cn } from "@/lib/utils"
 import { Button } from "@/components/ui/button"
@@ -24,7 +24,7 @@ import {
   User,
 } from "lucide-react"
 import type React from "react"
-import { useAuth } from "@/contexts/AuthContext"
+import { useAuth } from "@/hooks/useAuth"
 
 const routes = [
   {
@@ -44,12 +44,10 @@ type SidebarProps = React.HTMLAttributes<HTMLDivElement>
 export function Sidebar({ className }: SidebarProps) {
   const [isExpanded, setIsExpanded] = useState(false)
   const pathname = usePathname()
-  const router = useRouter()
   const { user, isAuthenticated, isLoading, logout } = useAuth()
 
-  const handleLogout = () => {
-    logout()
-    router.push("/")
+  const handleLogout = async () => {
+    await logout()
   }
 
   return (
@@ -257,12 +255,10 @@ function NavItem({ icon: Icon, label, href, isActive, isExpanded }: NavItemProps
 
 export function MobileSidebar() {
   const pathname = usePathname()
-  const router = useRouter()
   const { user, isAuthenticated, isLoading, logout } = useAuth()
 
-  const handleLogout = () => {
-    logout()
-    router.push("/")
+  const handleLogout = async () => {
+    await logout()
   }
 
   return (

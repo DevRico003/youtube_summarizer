@@ -7,19 +7,106 @@ datasource db {
   provider = "sqlite"
 }
 
+// ============================================
+// Better-Auth Core Tables
+// ============================================
+
 model User {
+  id              String   @id @default(cuid())
+  email           String   @unique
+  emailVerified   Boolean  @default(false)
+  name            String?
+  image           String?
+  setupCompleted  Boolean  @default(false)
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+
+  // Relations
+  sessions              Session[]
+  accounts              Account[]
+  topicEdits            UserTopicEdit[]
+  usageLogs             ApiUsageLog[]
+  summaries             Summary[]
+  apiKeys               UserApiKey[]
+  securityQuestions     UserSecurityQuestion[]
+}
+
+model Session {
   id             String   @id @default(cuid())
-  email          String   @unique
-  passwordHash   String
+  userId         String
+  token          String   @unique
+  expiresAt      DateTime
+  ipAddress      String?
+  userAgent      String?
   setupCompleted Boolean  @default(false)
   createdAt      DateTime @default(now())
   updatedAt      DateTime @updatedAt
 
-  topicEdits UserTopicEdit[]
-  usageLogs  ApiUsageLog[]
-  summaries  Summary[]
-  apiKeys    UserApiKey[]
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId])
 }
+
+model Account {
+  id                    String   @id @default(cuid())
+  userId                String
+  accountId             String
+  providerId            String
+  accessToken           String?
+  refreshToken          String?
+  accessTokenExpiresAt  DateTime?
+  refreshTokenExpiresAt DateTime?
+  scope                 String?
+  idToken               String?
+  password              String?
+  createdAt             DateTime @default(now())
+  updatedAt             DateTime @updatedAt
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId])
+}
+
+model Verification {
+  id         String   @id @default(cuid())
+  identifier String
+  value      String
+  expiresAt  DateTime
+  createdAt  DateTime @default(now())
+  updatedAt  DateTime @updatedAt
+
+  @@index([identifier])
+}
+
+// ============================================
+// Security Questions (Custom for Password Reset)
+// ============================================
+
+model SecurityQuestion {
+  id       String @id @default(cuid())
+  question String @unique
+
+  userAnswers UserSecurityQuestion[]
+}
+
+model UserSecurityQuestion {
+  id             String @id @default(cuid())
+  userId         String
+  questionId     String
+  answerHash     String
+  questionOrder  Int    // 1, 2, or 3 for ordering
+
+  user     User             @relation(fields: [userId], references: [id], onDelete: Cascade)
+  question SecurityQuestion @relation(fields: [questionId], references: [id], onDelete: Cascade)
+
+  @@unique([userId, questionId])
+  @@unique([userId, questionOrder])
+  @@index([userId])
+}
+
+// ============================================
+// Application Tables
+// ============================================
 
 model Summary {
   id            String   @id @default(cuid())
