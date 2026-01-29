@@ -15,13 +15,16 @@ export function extractVideoId(youtube_url: string): string {
     if (!VALID_YOUTUBE_DOMAINS.includes(hostname)) {
       throw new Error("Invalid domain");
     }
-  } catch {
-    // If it's not a valid URL, check if it's just a video ID (11 chars)
-    if (!/^[0-9A-Za-z_-]{11}$/.test(url)) {
-      throw new Error("Invalid YouTube URL or video ID");
+  } catch (error) {
+    // If URL constructor threw, check if it's just a video ID (11 chars)
+    if (error instanceof TypeError) {
+      if (!/^[0-9A-Za-z_-]{11}$/.test(url)) {
+        throw new Error("Invalid YouTube URL or video ID");
+      }
+      return url;
     }
-    // It's a valid video ID, return it directly
-    return url;
+    // Re-throw domain validation errors
+    throw error;
   }
 
   const patterns = [
