@@ -7,7 +7,7 @@ import { usePathname } from "next/navigation"
 import { motion, AnimatePresence } from "framer-motion"
 import { cn } from "@/lib/utils"
 import { Button } from "@/components/ui/button"
-import { Sheet, SheetContent, SheetTrigger } from "@/components/ui/sheet"
+import { Sheet, SheetContent, SheetTrigger, SheetTitle, SheetDescription } from "@/components/ui/sheet"
 import {
   Tooltip,
   TooltipContent,
@@ -290,6 +290,8 @@ export function MobileSidebar() {
         side="left"
         className="w-64 p-0 bg-white border-r border-slate-200/60"
       >
+        <SheetTitle className="sr-only">Navigation Menu</SheetTitle>
+        <SheetDescription className="sr-only">Main navigation sidebar</SheetDescription>
         <motion.div
           className="h-full flex flex-col"
           drag="x"
