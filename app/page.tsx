@@ -5,7 +5,7 @@ import { useRouter } from "next/navigation"
 import Link from "next/link"
 import Image from "next/image"
 import { motion } from "framer-motion"
-import { Loader2, Sparkles, Play, Zap, Clock, BookOpen, ArrowRight } from "lucide-react"
+import { Loader2, Sparkles, Zap, Clock, BookOpen, ArrowRight } from "lucide-react"
 import { extractVideoId } from "@/lib/youtube"
 import { UrlInputEnhanced } from "@/components/url-input-enhanced"
 import { ModelDropdown } from "@/components/model-dropdown"
@@ -220,30 +220,6 @@ export default function Home() {
               </GlassCard>
             </motion.div>
 
-            {/* Demo Preview */}
-            <motion.div variants={itemVariants} className="mt-12 w-full">
-              <GlassCard variant="elevated" className="p-6 md:p-8 opacity-75">
-                <div className="text-center">
-                  <div className="inline-flex items-center gap-2 px-3 py-1 rounded-full bg-slate-100 text-slate-500 text-sm mb-4">
-                    <Play className="w-4 h-4" />
-                    Preview
-                  </div>
-                  <p className="text-slate-400 mb-4">
-                    Create an account to start summarizing YouTube videos
-                  </p>
-                  <div className="relative">
-                    <div className="absolute inset-0 bg-gradient-to-t from-white/80 to-transparent z-10 rounded-xl" />
-                    <div className="bg-slate-50 rounded-xl p-4 border border-slate-100">
-                      <div className="h-12 bg-slate-100 rounded-lg mb-4 animate-pulse" />
-                      <div className="grid grid-cols-2 gap-4">
-                        <div className="h-10 bg-slate-100 rounded-lg animate-pulse" />
-                        <div className="h-10 bg-slate-100 rounded-lg animate-pulse" />
-                      </div>
-                    </div>
-                  </div>
-                </div>
-              </GlassCard>
-            </motion.div>
           </motion.div>
         </div>
       </div>
