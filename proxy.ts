@@ -2,12 +2,12 @@ import { NextResponse } from 'next/server';
 import type { NextRequest } from 'next/server';
 
 /**
- * Middleware configuration
+ * Proxy configuration
  *
  * Auth checks are handled client-side via AuthContext since tokens are stored in localStorage.
- * This middleware only handles static asset routing and basic path configuration.
+ * This proxy only handles static asset routing and basic path configuration.
  */
-export function middleware(request: NextRequest) {
+export function proxy(request: NextRequest) {
   const { pathname } = request.nextUrl;
 
   // Allow all paths through - auth is handled client-side
@@ -20,7 +20,7 @@ export function middleware(request: NextRequest) {
 }
 
 /**
- * Configure which paths the middleware runs on
+ * Configure which paths the proxy runs on
  */
 export const config = {
   matcher: [
